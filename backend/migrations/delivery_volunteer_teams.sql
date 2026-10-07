@@ -1,0 +1,20 @@
+CREATE TABLE delivery_volunteer_teams (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL UNIQUE REFERENCES users (id) ON DELETE CASCADE,
+    team_name VARCHAR(150) NOT NULL,
+    team_registration_number VARCHAR(60),
+    leader_full_name VARCHAR(150) NOT NULL,
+    leader_phone_number VARCHAR(20) NOT NULL,
+    address TEXT,
+    operating_district VARCHAR(80) NOT NULL,
+    member_count INTEGER NOT NULL CHECK (member_count >= 1),
+    member_details TEXT,
+    has_vehicle BOOLEAN NOT NULL DEFAULT FALSE,
+    vehicle_registration_number VARCHAR(20),
+    vehicle_type VARCHAR(30),
+    vehicle_capacity VARCHAR(60),
+    driver_name VARCHAR(150),
+    driving_license_number VARCHAR(30),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

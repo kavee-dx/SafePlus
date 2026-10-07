@@ -15,10 +15,14 @@ import { Colors } from "../constants/theme";
 
 interface DmcLoginScreenProps {
   onLogin: () => void;
+  onShowRegistration?: () => void;
+  onShowAdminLogin?: () => void;
 }
 
 export default function KaveeshaDmcLoginScreen({
   onLogin,
+  onShowRegistration,
+  onShowAdminLogin,
 }: DmcLoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -221,6 +225,30 @@ export default function KaveeshaDmcLoginScreen({
             <button type="submit" className="dmc-submit-button">
               Sign in to DMC Portal
             </button>
+
+            {onShowRegistration && (
+              <div className="dmc-register-link">
+                <span>New to SafePlus?</span>
+                <button
+                  type="button"
+                  onClick={onShowRegistration}
+                >
+                  Register as DMC Officer
+                </button>
+              </div>
+            )}
+
+            {onShowAdminLogin && (
+              <div className="dmc-register-link">
+                <span>Are you an administrator?</span>
+                <button
+                  type="button"
+                  onClick={onShowAdminLogin}
+                >
+                  Admin login
+                </button>
+              </div>
+            )}
           </form>
 
           {/* Security notice */}
@@ -664,6 +692,32 @@ export default function KaveeshaDmcLoginScreen({
             color: #98a2b3;
             font-size: 10px;
             margin-top: 28px;
+          }
+
+          .dmc-register-link {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-top: 20px;
+            color: ${Colors.muted};
+            font-size: 13px;
+          }
+
+          .dmc-register-link button {
+            border: none;
+            background: transparent;
+            color: ${Colors.red};
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            padding: 0;
+            transition: color 160ms ease;
+          }
+
+          .dmc-register-link button:hover {
+            color: ${Colors.redDark};
+            text-decoration: underline;
           }
 
           /* =========================
