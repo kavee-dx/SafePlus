@@ -14,7 +14,11 @@ export type UserRole =
   | "COORDINATOR"
   | "DMC_OFFICER";
 
-export type AccountStatus = "ACTIVE" | "PENDING_VERIFICATION";
+export type AccountStatus =
+  | "ACTIVE"
+  | "PENDING_VERIFICATION"
+  | "REJECTED"
+  | "SUSPENDED";
 
 export type InterfaceAccess = "MOBILE_APP" | "DMC_PORTAL";
 
@@ -788,3 +792,26 @@ export const REGISTRATION_TYPES: Record<string, RegistrationTypeDefinition> =
       { ...definition, interfaces: ROLE_INTERFACES[definition.role] },
     ])
   );
+
+// Roles whose registration is reviewed and approved/rejected by the Super Admin.
+// Organization team leaders are verified by their Organization Admin instead, so
+// they are intentionally excluded here.
+export const SUPER_ADMIN_REVIEWABLE_ROLES: readonly UserRole[] = Object.entries(
+  REGISTRATION_TYPE_DEFS
+)
+  .filter(([, definition]) => definition.verifiedBy === "SUPER_ADMIN")
+  .map(([, definition]) => definition.role);
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  CITIZEN: "Citizen",
+  DELIVERY_VOLUNTEER: "Delivery Volunteer",
+  DELIVERY_VOLUNTEER_TEAM: "Delivery Volunteer Team",
+  FOOD_DONOR: "Food Donor",
+  RELIEF_AGENCY: "Relief Agency",
+  ORGANIZATION_ADMIN: "Organization Admin",
+  ORGANIZATION_TEAM_LEADER: "Organization Team Leader",
+  INDEPENDENT_TEAM_LEADER: "Independent Team Leader",
+  DISTRICT_OFFICER: "District Officer",
+  COORDINATOR: "Coordinator",
+  DMC_OFFICER: "DMC Officer",
+};

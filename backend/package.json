@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only server.ts",
     "migrate": "tsx migrate.ts",
+    "seed:admin": "tsx amasha-seedSuperAdmin.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest"
@@ -19,6 +20,7 @@
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^6.10.1",
     "pg": "^8.23.1",
     "socket.io": "^4.8.4"
   },
@@ -29,6 +31,7 @@
     "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.6.4",
+    "@types/nodemailer": "^6.4.24",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.1",
     "jest": "^30.5.2",

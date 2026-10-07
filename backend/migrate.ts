@@ -27,7 +27,9 @@ async function migrate() {
       "organization_admins.sql",
       "team_leaders.sql",
       "district_officers.sql",
-      "dmc_officers.sql"
+      "dmc_officers.sql",
+      "amasha-super_admins.sql",
+      "amasha-users_verification_columns.sql"
     ];
 
     for (const file of migrationFiles) {
