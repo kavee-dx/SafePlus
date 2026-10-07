@@ -19,7 +19,15 @@ async function migrate() {
     // Explicit dependency order
     const migrationFiles = [
       "users.sql",
-      "disasters.sql"
+      "disasters.sql",
+      "users_registration_columns.sql",
+      "delivery_volunteers.sql",
+      "delivery_volunteer_teams.sql",
+      "relief_agencies.sql",
+      "organization_admins.sql",
+      "team_leaders.sql",
+      "district_officers.sql",
+      "dmc_officers.sql"
     ];
 
     for (const file of migrationFiles) {

@@ -1,5 +1,7 @@
 import { Router } from "express";
 
+import registrationRoutes from "./registrations";
+
 const router = Router();
 
 router.get("/health", (_req, res) => {
@@ -7,5 +9,7 @@ router.get("/health", (_req, res) => {
     message: "SafePlus API is healthy",
   });
 });
+
+router.use("/registrations", registrationRoutes);
 
 export default router;

@@ -2,7 +2,13 @@ import { useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-export default function LoginScreen() {
+interface LoginScreenProps {
+  onShowRegistration?: () => void;
+}
+
+export default function LoginScreen({
+  onShowRegistration,
+}: LoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -204,11 +210,13 @@ export default function LoginScreen() {
                     Don't have an account?
                   </Text>
 
-                  <Pressable className="ml-1">
-                    <Text className="text-sm font-extrabold text-safeplus-darkGreen">
-                      Create account
-                    </Text>
-                  </Pressable>
+                  {onShowRegistration && (
+                    <Pressable onPress={onShowRegistration} className="ml-1">
+                      <Text className="text-sm font-extrabold text-safeplus-darkGreen">
+                        Create account
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               </View>
 
