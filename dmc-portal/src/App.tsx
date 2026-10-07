@@ -8,6 +8,10 @@ import DistrictOfficerRegistration from "./pages/dushani-DistrictOfficerRegistra
 import CoordinatorRegistration from "./pages/dushani-CoordinatorRegistration";
 import OrganizationAdminRegistration from "./pages/dushani-OrganizationAdminRegistration";
 import RegistrationSuccessPage from "./pages/dushani-RegistrationSuccessPage";
+import AdminLoginScreen from "./pages/amasha-AdminLoginScreen";
+import AdminDashboard from "./pages/amasha-AdminDashboard";
+import { getStoredAdmin, getStoredToken } from "./services/amasha-adminApi";
+import type { AdminUser } from "./types/auth";
 
 type ScreenType =
   | "splash"
@@ -17,11 +21,16 @@ type ScreenType =
   | "district-officer-registration"
   | "coordinator-registration"
   | "organization-admin-registration"
-  | "registration-success";
+  | "registration-success"
+  | "admin-login"
+  | "admin-dashboard";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("splash");
   const [registrationType, setRegistrationType] = useState<string>("");
+  const [admin, setAdmin] = useState<AdminUser | null>(() =>
+    getStoredToken() ? getStoredAdmin() : null
+  );
 
   const handleSplashFinish = () => {
     setCurrentScreen("login");
@@ -34,6 +43,20 @@ export default function App() {
 
   const handleShowRegistration = () => {
     setCurrentScreen("registration-selection");
+  };
+
+  const handleShowAdminLogin = () => {
+    setCurrentScreen("admin-login");
+  };
+
+  const handleAdminLoggedIn = (loggedInAdmin: AdminUser) => {
+    setAdmin(loggedInAdmin);
+    setCurrentScreen("admin-dashboard");
+  };
+
+  const handleAdminLogout = () => {
+    setAdmin(null);
+    setCurrentScreen("login");
   };
 
   const handleSelectRegistrationType = (type: string) => {
@@ -77,8 +100,30 @@ export default function App() {
       <KaveeshaDmcLoginScreen
         onLogin={handleLogin}
         onShowRegistration={handleShowRegistration}
+        onShowAdminLogin={handleShowAdminLogin}
       />
     );
+  }
+
+  if (currentScreen === "admin-login") {
+    return (
+      <AdminLoginScreen
+        onBack={handleBackToLogin}
+        onLoggedIn={handleAdminLoggedIn}
+      />
+    );
+  }
+
+  if (currentScreen === "admin-dashboard") {
+    if (!admin) {
+      return (
+        <AdminLoginScreen
+          onBack={handleBackToLogin}
+          onLoggedIn={handleAdminLoggedIn}
+        />
+      );
+    }
+    return <AdminDashboard admin={admin} onLogout={handleAdminLogout} />;
   }
 
   if (currentScreen === "registration-selection") {

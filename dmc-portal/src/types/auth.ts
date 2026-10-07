@@ -14,3 +14,9 @@ export interface LoginResponse {
   token: string;
   user: AuthUser;
 }
+
+export interface AdminUser {
+  id: string;
+  fullName: string;
+  email: string;
+}

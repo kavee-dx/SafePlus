@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import registrationRoutes from "./registrations";
+import adminRoutes from "./amasha-admin";
 
 const router = Router();
 
@@ -11,5 +12,6 @@ router.get("/health", (_req, res) => {
 });
 
 router.use("/registrations", registrationRoutes);
+router.use("/admin", adminRoutes);
 
 export default router;

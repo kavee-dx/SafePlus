@@ -16,11 +16,13 @@ import { Colors } from "../constants/theme";
 interface DmcLoginScreenProps {
   onLogin: () => void;
   onShowRegistration?: () => void;
+  onShowAdminLogin?: () => void;
 }
 
 export default function KaveeshaDmcLoginScreen({
   onLogin,
   onShowRegistration,
+  onShowAdminLogin,
 }: DmcLoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -232,6 +234,18 @@ export default function KaveeshaDmcLoginScreen({
                   onClick={onShowRegistration}
                 >
                   Register as DMC Officer
+                </button>
+              </div>
+            )}
+
+            {onShowAdminLogin && (
+              <div className="dmc-register-link">
+                <span>Are you an administrator?</span>
+                <button
+                  type="button"
+                  onClick={onShowAdminLogin}
+                >
+                  Admin login
                 </button>
               </div>
             )}
