@@ -9,7 +9,7 @@ function getTransporter(): Transporter | null {
   const service = process.env.SMTP_SERVICE?.trim();
   const host = process.env.SMTP_HOST?.trim();
 
-  // Nothing configured -> run in "console" mode so local development still works.
+ 
   if (!service && !host) return null;
 
   if (!transporter) {
