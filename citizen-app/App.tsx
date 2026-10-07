@@ -1,6 +1,6 @@
 import "./global.css";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import SplashScreen from "./src/screens/kaveesha-SplashScreen";
@@ -12,6 +12,10 @@ import FoodDonorRegistrationScreen from "./src/screens/dushani-FoodDonorRegistra
 import DeliveryVolunteerRegistrationScreen from "./src/screens/dushani-DeliveryVolunteerRegistrationScreen";
 import TeamLeaderRegistrationScreen from "./src/screens/dushani-TeamLeaderRegistrationScreen";
 import RegistrationSuccessScreen from "./src/screens/dushani-RegistrationSuccessScreen";
+
+import type { LoginResult } from "./src/services/dildhara-authApi";
+import HomeScreen from "./src/screens/dildhara-HomeScreen";
+
 
 type ScreenType =
   | "splash"
@@ -51,6 +55,22 @@ function Screens() {
   const handleBackToSelection = () => {
     setCurrentScreen("registration-selection");
   };
+  const [session, setSession] = useState<LoginResult | null>(null);
+  const handleLoginSuccess = useCallback((result: LoginResult) => {
+    setSession(result);
+  }, []);
+
+  const handleSignOut = useCallback(() => setSession(null), []);
+
+  if (session) {
+    return (
+      <HomeScreen
+        token={session.token}
+        account={session.account}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
 
   const handleSelectRegistrationType = (type: string) => {
     setRegistrationType(type);
@@ -86,7 +106,10 @@ function Screens() {
 
   if (currentScreen === "login") {
     return (
-      <LoginScreen onShowRegistration={handleShowRegistration} />
+      <LoginScreen
+        onShowRegistration={handleShowRegistration}
+        onLoginSuccess={handleLoginSuccess}
+      />
     );
   }
 
