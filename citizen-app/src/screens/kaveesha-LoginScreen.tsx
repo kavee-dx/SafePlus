@@ -1,17 +1,59 @@
 import { useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+
+import {
+  AuthApiError,
+  loginAccount,
+  type LoginResult,
+} from "../services/dildhara-authApi";
 
 interface LoginScreenProps {
   onShowRegistration?: () => void;
+  onLoginSuccess?: (result: LoginResult) => void;
 }
 
 export default function LoginScreen({
   onShowRegistration,
+  onLoginSuccess,
 }: LoginScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function handleSignIn() {
+    if (loading) return;
+
+    if (!email.trim() || !password) {
+      setErrorMessage("Please enter your email and password.");
+      return;
+    }
+
+    setLoading(true);
+    setErrorMessage("");
+
+    try {
+      const result = await loginAccount(email.trim(), password, "MOBILE_APP");
+      onLoginSuccess?.(result);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof AuthApiError
+          ? error.message
+          : "Something went wrong. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <View className="flex-1 bg-safeplus-background">
@@ -186,11 +228,26 @@ export default function LoginScreen({
                   </View>
                 </View>
 
-                {/* Login button */}
-                <Pressable className="items-center justify-center mt-6 shadow-lg h-14 rounded-2xl bg-safeplus-green active:opacity-80">
-                  <Text className="text-base font-extrabold text-white">
-                    Sign In
+                {/* Error message */}
+                {errorMessage ? (
+                  <Text className="mt-4 text-sm font-bold text-red-600">
+                    {errorMessage}
                   </Text>
+                ) : null}
+
+                {/* Login button */}
+                <Pressable
+                  onPress={handleSignIn}
+                  disabled={loading}
+                  className="items-center justify-center mt-6 shadow-lg h-14 rounded-2xl bg-safeplus-green active:opacity-80"
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text className="text-base font-extrabold text-white">
+                      Sign In
+                    </Text>
+                  )}
                 </Pressable>
 
                 {/* Divider */}
