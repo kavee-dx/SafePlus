@@ -189,7 +189,7 @@ export async function updateVerification(
     `UPDATE hazard_reports
         SET status = $2,
             verified_by = $3,
-            verified_at = CASE WHEN $2 = 'VERIFIED' THEN NOW() ELSE NULL END,
+            verified_at = CASE WHEN $2::varchar = 'VERIFIED' THEN NOW() ELSE NULL END,
             verification_notes = $4,
             updated_at = NOW()
       WHERE id = $1

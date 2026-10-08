@@ -11,6 +11,7 @@ import RegistrationSuccessPage from "./pages/dushani-RegistrationSuccessPage";
 import AdminLoginScreen from "./pages/amasha-AdminLoginScreen";
 import AdminDashboard from "./pages/amasha-AdminDashboard";
 import DmcOfficerDashboard from "./pages/dushani-DmcOfficerDashboard";
+import KaveeshaDistrictOfficerDashboard from "./pages/kaveesha-DistrictOfficerDashboard";
 
 import PortalLayout, {
   type PortalPage,
@@ -44,6 +45,7 @@ type ScreenType =
   | "admin-login"
   | "admin-dashboard"
   | "dmc-dashboard"
+  | "district-dashboard"
   | "portal";
 
 // Convert the authenticated user into the account structure
@@ -83,9 +85,25 @@ export default function App() {
 
   // DMC Officer authentication and dashboard
   const [dmcOfficer, setDmcOfficer] =
-    useState<AuthUser | null>(() =>
-      getStoredDmcToken() ? getStoredDmcUser() : null
-    );
+    useState<AuthUser | null>(() => {
+      const stored = getStoredDmcToken()
+        ? getStoredDmcUser()
+        : null;
+      return stored?.role === "DMC_OFFICER"
+        ? stored
+        : null;
+    });
+
+  // District Officer authentication and dashboard
+  const [districtOfficer, setDistrictOfficer] =
+    useState<AuthUser | null>(() => {
+      const stored = getStoredDmcToken()
+        ? getStoredDmcUser()
+        : null;
+      return stored?.role === "DISTRICT_OFFICER"
+        ? stored
+        : null;
+    });
 
   // Shared portal authentication for
   // District Officer, Coordinator and Organization Admin
@@ -107,14 +125,21 @@ export default function App() {
   ) => {
     const account = toPortalAccount(user);
 
-    // DMC Officer uses the dashboard from development.
-       if (account.role === "DMC_OFFICER" || account.role === "DISTRICT_OFFICER") {
+    // DMC Officer uses the national dashboard.
+    if (account.role === "DMC_OFFICER") {
       setDmcOfficer(user);
       setCurrentScreen("dmc-dashboard");
       return;
     }
 
-    // District Officer, Coordinator and Organization Admin
+    // District Officer uses the district-scoped dashboard.
+    if (account.role === "DISTRICT_OFFICER") {
+      setDistrictOfficer(user);
+      setCurrentScreen("district-dashboard");
+      return;
+    }
+
+    // Coordinator and Organization Admin
     // use the shared portal dashboard/profile layout.
     setPortalSession({
       token,
@@ -182,6 +207,11 @@ export default function App() {
 
   const handleDmcOfficerLogout = () => {
     setDmcOfficer(null);
+    setCurrentScreen("login");
+  };
+
+  const handleDistrictOfficerLogout = () => {
+    setDistrictOfficer(null);
     setCurrentScreen("login");
   };
 
@@ -287,6 +317,33 @@ export default function App() {
       <DmcOfficerDashboard
         officer={dmcOfficer}
         onLogout={handleDmcOfficerLogout}
+      />
+    );
+  }
+
+  // -------------------------
+  // District Officer Dashboard
+  // -------------------------
+
+  if (currentScreen === "district-dashboard") {
+    if (!districtOfficer) {
+      return (
+        <KaveeshaDmcLoginScreen
+          onLogin={handleDmcEmailLogin}
+          onShowRegistration={
+            handleShowRegistration
+          }
+          onShowAdminLogin={
+            handleShowAdminLogin
+          }
+        />
+      );
+    }
+
+    return (
+      <KaveeshaDistrictOfficerDashboard
+        officer={districtOfficer}
+        onLogout={handleDistrictOfficerLogout}
       />
     );
   }
