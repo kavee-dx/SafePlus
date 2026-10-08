@@ -1,17 +1,24 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Text,
+  View,
+  type ViewStyle,
+} from "react-native";
 
 import {
   AuthApiError,
   type LoginAccount,
 } from "../services/dildhara-authApi";
 import { fetchMyProfile, type Profile } from "../services/dildhara-profileApi";
+import BottomTabBar, { type TabKey } from "../components/dildhara-BottomTabBar";
 import AccountScreen from "./dildhara-AccountScreen";
-import BasicProfile from "./dildhara-BasicProfile";
-import OfficerProfile from "./dildhara-OfficerProfile";
-import OrganizationProfile from "./dildhara-OrganizationProfile";
-import TeamProfile from "./dildhara-TeamProfile";
-import VolunteerProfile from "./dildhara-VolunteerProfile";
+import AlertsTab from "./dildhara-AlertsTab";
+import HomeTab from "./dildhara-HomeTab";
+import ProfileScreen from "./dildhara-ProfileScreen";
 
 interface HomeScreenProps {
   token: string;
@@ -19,31 +26,8 @@ interface HomeScreenProps {
   onSignOut: () => void;
 }
 
-function ProfileForRole({ profile }: { profile: Profile }) {
-  switch (profile.user.role) {
-    case "DELIVERY_VOLUNTEER":
-      return <VolunteerProfile profile={profile} />;
-
-    case "DELIVERY_VOLUNTEER_TEAM":
-    case "ORGANIZATION_TEAM_LEADER":
-    case "INDEPENDENT_TEAM_LEADER":
-      return <TeamProfile profile={profile} />;
-
-    case "RELIEF_AGENCY":
-    case "ORGANIZATION_ADMIN":
-      return <OrganizationProfile profile={profile} />;
-
-    case "DISTRICT_OFFICER":
-    case "DMC_OFFICER":
-      return <OfficerProfile profile={profile} />;
-
-    default: // CITIZEN, FOOD_DONOR, COORDINATOR
-      return <BasicProfile profile={profile} />;
-  }
-}
-
 export default function HomeScreen({ token, account, onSignOut }: HomeScreenProps) {
-  const [tab, setTab] = useState<"profile" | "account">("profile");
+  const [tab, setTab] = useState<TabKey>("home");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -74,40 +58,63 @@ export default function HomeScreen({ token, account, onSignOut }: HomeScreenProp
     };
   }, [token, onSignOut]);
 
-  return (
-    <View className="flex-1 bg-safeplus-background">
-      <ScrollView
-        className="flex-1"
-        contentContainerClassName="px-5 pt-14 pb-8 w-full max-w-xl self-center"
-      >
-        {tab === "account" ? (
-          <AccountScreen account={account} onSignOut={onSignOut} />
-        ) : errorMessage ? (
-          <Text className="text-base font-bold text-red-600">{errorMessage}</Text>
-        ) : profile ? (
-          <ProfileForRole profile={profile} />
-        ) : (
-          <ActivityIndicator size="large" color="#1B7F4B" />
-        )}
-      </ScrollView>
+  const renderContent = () => {
+    if (tab === "account") {
+      return <AccountScreen account={account} onSignOut={onSignOut} />;
+    }
 
-      <View className="flex-row bg-white border-t border-safeplus-border">
-        {(["profile", "account"] as const).map((name) => (
-          <Pressable
-            key={name}
-            onPress={() => setTab(name)}
-            className="items-center flex-1 py-4"
-          >
-            <Text
-              className={`text-sm font-extrabold ${
-                tab === name ? "text-safeplus-green" : "text-safeplus-muted"
-              }`}
-            >
-              {name === "profile" ? "Profile" : "Account"}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+    if (tab === "alerts") {
+      return <AlertsTab />;
+    }
+
+    if (errorMessage) {
+      return (
+        <Text className="text-base font-bold text-red-600">{errorMessage}</Text>
+      );
+    }
+
+    if (!profile) {
+      return <ActivityIndicator size="large" color="#1B7F4B" />;
+    }
+
+    if (tab === "profile") {
+      return (
+        <ProfileScreen
+          token={token}
+          profile={profile}
+          onProfileUpdated={setProfile}
+          onSessionExpired={onSignOut}
+        />
+      );
+    }
+
+    return <HomeTab profile={profile} onOpenProfile={() => setTab("profile")} />;
+  };
+
+  return (
+    <View
+      className="bg-safeplus-background"
+      style={[
+        { flex: 1 },
+        Platform.OS === "web"
+          ? ({ height: "100vh" } as unknown as ViewStyle)
+          : null,
+      ]}
+    >
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          className="flex-1"
+          contentContainerClassName="px-5 pt-14 pb-8 w-full max-w-xl self-center"
+          keyboardShouldPersistTaps="handled"
+        >
+          {renderContent()}
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <BottomTabBar active={tab} onChange={setTab} />
     </View>
   );
 }

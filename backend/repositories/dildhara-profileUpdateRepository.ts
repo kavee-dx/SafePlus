@@ -2,33 +2,119 @@ import type { PoolClient } from "pg";
 
 import { withTransaction } from "./registrationRepository";
 
-// field name used by the API -> column in the users table
-const USER_COLUMNS: Record<string, string> = {
+interface RoleColumns {
+  user: Record<string, string>; // field -> column in `users`
+  table?: string; // the role's own table
+  detail?: Record<string, string>; // field -> column in that table
+}
+
+const PERSON_USER = {
   fullName: "full_name",
   phoneNumber: "phone_number",
-  address: "address",
+  nicNumber: "nic_number",
 };
 
-// role -> role table and field -> column. A field may appear here AND in
-// USER_COLUMNS when the value is stored in both places.
-const DETAIL_TARGETS: Record<
-  string,
-  { table: string; columns: Record<string, string> }
-> = {
+const PLACE_USER = { address: "address", city: "city", district: "district" };
+
+const TEAM_USER = {
+  leaderFullName: "full_name",
+  leaderPhoneNumber: "phone_number",
+  address: "address",
+  operatingDistrict: "district",
+};
+
+const TEAM_DETAIL = {
+  teamName: "team_name",
+  leaderFullName: "leader_full_name",
+  leaderPhoneNumber: "leader_phone_number",
+  address: "address",
+  operatingDistrict: "operating_district",
+  memberCount: "member_count",
+  memberDetails: "member_details",
+};
+
+const VEHICLE_DETAIL = {
+  vehicleType: "vehicle_type",
+  vehicleRegistrationNumber: "vehicle_registration_number",
+  vehicleCapacity: "vehicle_capacity",
+  drivingLicenseNumber: "driving_license_number",
+};
+
+const ROLE_COLUMNS: Record<string, RoleColumns> = {
+  CITIZEN: {
+    user: {
+      ...PERSON_USER,
+      dateOfBirth: "date_of_birth",
+      gender: "gender",
+      ...PLACE_USER,
+      postalCode: "postal_code",
+    },
+  },
+  FOOD_DONOR: { user: { ...PERSON_USER, ...PLACE_USER } },
+  DELIVERY_VOLUNTEER: {
+    user: { ...PERSON_USER, ...PLACE_USER },
+    table: "delivery_volunteers",
+    detail: {
+      emergencyContactName: "emergency_contact_name",
+      emergencyContactNumber: "emergency_contact_number",
+      ...VEHICLE_DETAIL,
+    },
+  },
+  DELIVERY_VOLUNTEER_TEAM: {
+    user: TEAM_USER,
+    table: "delivery_volunteer_teams",
+    detail: { ...TEAM_DETAIL, driverName: "driver_name", ...VEHICLE_DETAIL },
+  },
+  RELIEF_AGENCY: {
+    user: {
+      contactPerson: "full_name",
+      contactPhoneNumber: "phone_number",
+      address: "address",
+    },
+    table: "relief_agencies",
+    detail: {
+      contactPerson: "contact_person",
+      contactPhoneNumber: "contact_phone_number",
+      address: "address",
+      operatingArea: "operating_area",
+    },
+  },
+  ORGANIZATION_TEAM_LEADER: {
+    user: { ...TEAM_USER, nicNumber: "nic_number" },
+    table: "team_leaders",
+    detail: TEAM_DETAIL,
+  },
+  INDEPENDENT_TEAM_LEADER: {
+    user: { ...TEAM_USER, nicNumber: "nic_number" },
+    table: "team_leaders",
+    detail: TEAM_DETAIL,
+  },
+
+  // ---- DMC portal roles ----
   DMC_OFFICER: {
+    user: { fullName: "full_name", phoneNumber: "phone_number" },
     table: "dmc_officers",
-    columns: { clearanceInfo: "clearance_info" },
+    detail: { clearanceInfo: "clearance_info" },
   },
   DISTRICT_OFFICER: {
+    user: { fullName: "full_name", phoneNumber: "phone_number" },
     table: "district_officers",
-    columns: {
+    detail: {
       divisionalSecretariats: "divisional_secretariats",
       phoneNumber: "duty_phone_number",
     },
   },
+  COORDINATOR: {
+    user: { fullName: "full_name", phoneNumber: "phone_number" },
+  },
   ORGANIZATION_ADMIN: {
+    user: {
+      fullName: "full_name",
+      phoneNumber: "phone_number",
+      address: "address",
+    },
     table: "organization_admins",
-    columns: {
+    detail: {
       fullName: "contact_person",
       phoneNumber: "contact_phone_number",
       address: "address",
@@ -67,18 +153,20 @@ export async function updateProfileRows(
   role: string,
   changes: Record<string, unknown>
 ): Promise<void> {
-  await withTransaction(async (client) => {
-    await updateRow(client, "users", "id", userId, changes, USER_COLUMNS);
+  const target = ROLE_COLUMNS[role];
+  if (!target) return;
 
-    const target = DETAIL_TARGETS[role];
-    if (target) {
+  await withTransaction(async (client) => {
+    await updateRow(client, "users", "id", userId, changes, target.user);
+
+    if (target.table && target.detail) {
       await updateRow(
         client,
         target.table,
         "user_id",
         userId,
         changes,
-        target.columns
+        target.detail
       );
     }
   });

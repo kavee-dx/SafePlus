@@ -22,6 +22,7 @@ import { getStoredAdmin, getStoredToken } from "./services/amasha-adminApi";
 import {
   getStoredDmcToken,
   getStoredDmcUser,
+  loginDmcOfficer,
 } from "./services/dmc-authApi";
 
 import type {
@@ -107,7 +108,7 @@ export default function App() {
     const account = toPortalAccount(user);
 
     // DMC Officer uses the dashboard from development.
-    if (account.role === "DMC_OFFICER") {
+       if (account.role === "DMC_OFFICER" || account.role === "DISTRICT_OFFICER") {
       setDmcOfficer(user);
       setCurrentScreen("dmc-dashboard");
       return;
@@ -122,6 +123,19 @@ export default function App() {
 
     setPortalPage("dashboard");
     setCurrentScreen("portal");
+  };
+
+  const handleDmcEmailLogin = async (
+    email: string,
+    password: string
+  ) => {
+    const { token, user } = await loginDmcOfficer({
+      email,
+      password,
+      interface: "DMC_PORTAL",
+    });
+
+    handleLogin(user, token);
   };
 
   const handlePortalSignOut = useCallback(() => {
@@ -239,7 +253,7 @@ export default function App() {
   if (currentScreen === "login") {
     return (
       <KaveeshaDmcLoginScreen
-        onLogin={handleLogin}
+        onLogin={handleDmcEmailLogin}
         onShowRegistration={
           handleShowRegistration
         }
@@ -258,7 +272,7 @@ export default function App() {
     if (!dmcOfficer) {
       return (
         <KaveeshaDmcLoginScreen
-          onLogin={handleLogin}
+          onLogin={handleDmcEmailLogin}
           onShowRegistration={
             handleShowRegistration
           }
@@ -285,7 +299,7 @@ export default function App() {
     if (!portalSession) {
       return (
         <KaveeshaDmcLoginScreen
-          onLogin={handleLogin}
+          onLogin={handleDmcEmailLogin}
           onShowRegistration={
             handleShowRegistration
           }
