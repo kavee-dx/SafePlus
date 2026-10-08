@@ -10,8 +10,11 @@ import OrganizationAdminRegistration from "./pages/dushani-OrganizationAdminRegi
 import RegistrationSuccessPage from "./pages/dushani-RegistrationSuccessPage";
 import AdminLoginScreen from "./pages/amasha-AdminLoginScreen";
 import AdminDashboard from "./pages/amasha-AdminDashboard";
+import DmcOfficerDashboard from "./pages/dushani-DmcOfficerDashboard";
 import { getStoredAdmin, getStoredToken } from "./services/amasha-adminApi";
+import { getStoredDmcToken, getStoredDmcUser } from "./services/dmc-authApi";
 import type { AdminUser } from "./types/auth";
+import type { AuthUser } from "./types/auth";
 
 type ScreenType =
   | "splash"
@@ -23,7 +26,8 @@ type ScreenType =
   | "organization-admin-registration"
   | "registration-success"
   | "admin-login"
-  | "admin-dashboard";
+  | "admin-dashboard"
+  | "dmc-dashboard";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("splash");
@@ -31,14 +35,17 @@ export default function App() {
   const [admin, setAdmin] = useState<AdminUser | null>(() =>
     getStoredToken() ? getStoredAdmin() : null
   );
+  const [dmcOfficer, setDmcOfficer] = useState<AuthUser | null>(() =>
+    getStoredDmcToken() ? getStoredDmcUser() : null
+  );
 
   const handleSplashFinish = () => {
     setCurrentScreen("login");
   };
 
-  const handleLogin = () => {
-    console.log("DMC login submitted");
-    // TODO: Implement actual login logic
+  const handleLogin = (user: AuthUser, _token: string) => {
+    setDmcOfficer(user);
+    setCurrentScreen("dmc-dashboard");
   };
 
   const handleShowRegistration = () => {
@@ -56,6 +63,11 @@ export default function App() {
 
   const handleAdminLogout = () => {
     setAdmin(null);
+    setCurrentScreen("login");
+  };
+
+  const handleDmcOfficerLogout = () => {
+    setDmcOfficer(null);
     setCurrentScreen("login");
   };
 
@@ -176,6 +188,24 @@ export default function App() {
       <RegistrationSuccessPage
         onBack={handleBackToLogin}
         registrationType={registrationType}
+      />
+    );
+  }
+
+  if (currentScreen === "dmc-dashboard") {
+    if (!dmcOfficer) {
+      return (
+        <KaveeshaDmcLoginScreen
+          onLogin={handleLogin}
+          onShowRegistration={handleShowRegistration}
+          onShowAdminLogin={handleShowAdminLogin}
+        />
+      );
+    }
+    return (
+      <DmcOfficerDashboard
+        officer={dmcOfficer}
+        onLogout={handleDmcOfficerLogout}
       />
     );
   }
