@@ -37,6 +37,11 @@ export interface VerificationEmailInput {
   role: UserRole;
   approved: boolean;
   reason?: string | null;
+  /**
+   * Who made the decision. The Super Admin reviews most registrations, but a
+   * rescue organization's own admin approves the teams registered under it.
+   */
+  reviewer?: string;
 }
 
 function buildEmail({
@@ -44,6 +49,7 @@ function buildEmail({
   role,
   approved,
   reason,
+  reviewer = "Super Admin",
 }: VerificationEmailInput): { subject: string; html: string } {
   const roleLabel = ROLE_LABELS[role] ?? role;
 
@@ -56,7 +62,7 @@ function buildEmail({
           <p>Hello ${fullName},</p>
           <p>
             Good news! Your <strong>${roleLabel}</strong> registration with
-            SafePlus has been <strong>approved</strong> by the Super Admin.
+            SafePlus has been <strong>approved</strong> by the ${reviewer}.
           </p>
           <p>
             Your account is now active. You can sign in to the SafePlus portal

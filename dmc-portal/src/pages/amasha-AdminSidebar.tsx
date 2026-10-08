@@ -1,6 +1,7 @@
 import {
   Building2,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   ShieldCheck,
   UserCog,
@@ -206,5 +207,6 @@ export const ROLE_ICONS: Record<ReviewableRole, LucideIcon> = {
   COORDINATOR: Users,
   RELIEF_AGENCY: Building2,
   ORGANIZATION_ADMIN: Building2,
+  RESCUE_ORGANIZATION_ADMIN: LifeBuoy,
   INDEPENDENT_TEAM_LEADER: Users,
 };

@@ -7,6 +7,10 @@ import DmcOfficerRegistration from "./pages/dushani-DMCOfficerRegistration";
 import DistrictOfficerRegistration from "./pages/dushani-DistrictOfficerRegistration";
 import CoordinatorRegistration from "./pages/dushani-CoordinatorRegistration";
 import OrganizationAdminRegistration from "./pages/dushani-OrganizationAdminRegistration";
+import RescueOrganizationRegistration from "./pages/kaveesha-RescueOrganizationRegistration";
+import RescueOrganizationDashboard from "./pages/kaveesha-RescueOrganizationDashboard";
+import RescueTeamRegistration from "./pages/kaveesha-RescueTeamRegistration";
+import TeamLeaderDashboard from "./pages/kaveesha-TeamLeaderDashboard";
 import RegistrationSuccessPage from "./pages/dushani-RegistrationSuccessPage";
 import AdminLoginScreen from "./pages/amasha-AdminLoginScreen";
 import AdminDashboard from "./pages/amasha-AdminDashboard";
@@ -21,6 +25,7 @@ import ProfilePage from "./pages/dildhara-ProfilePage";
 
 import { getStoredAdmin, getStoredToken } from "./services/amasha-adminApi";
 import {
+  clearDmcAuth,
   getStoredDmcToken,
   getStoredDmcUser,
   loginDmcOfficer,
@@ -41,12 +46,23 @@ type ScreenType =
   | "district-officer-registration"
   | "coordinator-registration"
   | "organization-admin-registration"
+  | "rescue-organization-registration"
+  | "rescue-team-registration"
   | "registration-success"
   | "admin-login"
   | "admin-dashboard"
   | "dmc-dashboard"
   | "district-dashboard"
+  | "rescue-organization-dashboard"
+  | "team-leader-dashboard"
   | "portal";
+
+// Both team leader roles land on the same dashboard. The only difference is
+// who verified the team, and the dashboard reads that from the API.
+const TEAM_LEADER_ROLES: string[] = [
+  "ORGANIZATION_TEAM_LEADER",
+  "INDEPENDENT_TEAM_LEADER",
+];
 
 // Convert the authenticated user into the account structure
 // expected by the shared portal pages.
@@ -105,6 +121,25 @@ export default function App() {
         : null;
     });
 
+  // Rescue Organization Admin authentication and dashboard
+  const [rescueOrgAdmin, setRescueOrgAdmin] =
+    useState<AuthUser | null>(() => {
+      const stored = getStoredDmcToken()
+        ? getStoredDmcUser()
+        : null;
+      return stored?.role === "RESCUE_ORGANIZATION_ADMIN"
+        ? stored
+        : null;
+    });
+
+  // Rescue Team Leader (organization or independent) authentication and dashboard
+  const [teamLeader, setTeamLeader] = useState<AuthUser | null>(() => {
+    const stored = getStoredDmcToken() ? getStoredDmcUser() : null;
+    return stored && TEAM_LEADER_ROLES.includes(stored.role)
+      ? stored
+      : null;
+  });
+
   // Shared portal authentication for
   // District Officer, Coordinator and Organization Admin
   const [portalSession, setPortalSession] =
@@ -136,6 +171,21 @@ export default function App() {
     if (account.role === "DISTRICT_OFFICER") {
       setDistrictOfficer(user);
       setCurrentScreen("district-dashboard");
+      return;
+    }
+
+    // Rescue Organization Admin lands on the organization dashboard.
+    if (account.role === "RESCUE_ORGANIZATION_ADMIN") {
+      setRescueOrgAdmin(user);
+      setCurrentScreen("rescue-organization-dashboard");
+      return;
+    }
+
+    // A rescue team leader (organization or independent) lands on their own
+    // team dashboard, where the verification status and availability live.
+    if (TEAM_LEADER_ROLES.includes(account.role)) {
+      setTeamLeader(user);
+      setCurrentScreen("team-leader-dashboard");
       return;
     }
 
@@ -215,6 +265,18 @@ export default function App() {
     setCurrentScreen("login");
   };
 
+  const handleRescueOrgLogout = () => {
+    clearDmcAuth();
+    setRescueOrgAdmin(null);
+    setCurrentScreen("login");
+  };
+
+  const handleTeamLeaderLogout = () => {
+    clearDmcAuth();
+    setTeamLeader(null);
+    setCurrentScreen("login");
+  };
+
   const handleSelectRegistrationType = (
     type: string
   ) => {
@@ -242,6 +304,18 @@ export default function App() {
       case "organization-admin":
         setCurrentScreen(
           "organization-admin-registration"
+        );
+        break;
+
+      case "rescue-organization":
+        setCurrentScreen(
+          "rescue-organization-registration"
+        );
+        break;
+
+      case "rescue-team":
+        setCurrentScreen(
+          "rescue-team-registration"
         );
         break;
 
@@ -344,6 +418,60 @@ export default function App() {
       <KaveeshaDistrictOfficerDashboard
         officer={districtOfficer}
         onLogout={handleDistrictOfficerLogout}
+      />
+    );
+  }
+
+  // -------------------------
+  // Rescue Organization Dashboard
+  // -------------------------
+
+  if (currentScreen === "rescue-organization-dashboard") {
+    if (!rescueOrgAdmin) {
+      return (
+        <KaveeshaDmcLoginScreen
+          onLogin={handleDmcEmailLogin}
+          onShowRegistration={
+            handleShowRegistration
+          }
+          onShowAdminLogin={
+            handleShowAdminLogin
+          }
+        />
+      );
+    }
+
+    return (
+      <RescueOrganizationDashboard
+        admin={rescueOrgAdmin}
+        onLogout={handleRescueOrgLogout}
+      />
+    );
+  }
+
+  // -------------------------
+  // Rescue Team Leader Dashboard
+  // -------------------------
+
+  if (currentScreen === "team-leader-dashboard") {
+    if (!teamLeader) {
+      return (
+        <KaveeshaDmcLoginScreen
+          onLogin={handleDmcEmailLogin}
+          onShowRegistration={
+            handleShowRegistration
+          }
+          onShowAdminLogin={
+            handleShowAdminLogin
+          }
+        />
+      );
+    }
+
+    return (
+      <TeamLeaderDashboard
+        leader={teamLeader}
+        onLogout={handleTeamLeaderLogout}
       />
     );
   }
@@ -509,6 +637,42 @@ export default function App() {
   ) {
     return (
       <OrganizationAdminRegistration
+        onBack={handleBackToSelection}
+        onSuccess={
+          handleRegistrationSuccess
+        }
+      />
+    );
+  }
+
+  // -------------------------
+  // Rescue Organization Registration
+  // -------------------------
+
+  if (
+    currentScreen ===
+    "rescue-organization-registration"
+  ) {
+    return (
+      <RescueOrganizationRegistration
+        onBack={handleBackToSelection}
+        onSuccess={
+          handleRegistrationSuccess
+        }
+      />
+    );
+  }
+
+  // -------------------------
+  // Rescue Team Registration
+  // -------------------------
+
+  if (
+    currentScreen ===
+    "rescue-team-registration"
+  ) {
+    return (
+      <RescueTeamRegistration
         onBack={handleBackToSelection}
         onSuccess={
           handleRegistrationSuccess

@@ -5,6 +5,8 @@ import {
   Truck,
   Info,
   Building2,
+  LifeBuoy,
+  Ambulance,
 } from "lucide-react";
 
 import { Colors } from "../constants/theme";
@@ -46,6 +48,22 @@ const REGISTRATION_TYPES = [
     description:
       "Run a rescue organization on the portal and approve or reject the teams registered under it.",
     icon: Building2,
+  },
+  {
+    id: "rescue-organization",
+    eyebrow: "Rescue organization",
+    title: "Rescue Organization",
+    description:
+      "Register a government, armed forces, police, fire, NGO or private rescue service with its administering representative.",
+    icon: LifeBuoy,
+  },
+  {
+    id: "rescue-team",
+    eyebrow: "Rescue team",
+    title: "Rescue Team Leader",
+    description:
+      "Register the team you lead. Teams under a verified organization are approved by that organization's admin; independent and community teams are approved by a DMC Super Admin.",
+    icon: Ambulance,
   },
 ];
 
@@ -118,9 +136,9 @@ export default function RegistrationSelectionPage({
           <div>
             <strong>Verified before access</strong>
             <span>
-              A Super Admin reviews each portal submission. Rescue teams register
-              on the SafePlus mobile app, where your organization admin approves
-              them.
+              A Super Admin reviews each portal submission. Rescue team leaders
+              register their team here and, once verified, sign in on both this
+              portal and the SafePlus mobile app for field operations.
             </span>
           </div>
         </div>

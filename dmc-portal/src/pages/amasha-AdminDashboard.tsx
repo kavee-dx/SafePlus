@@ -39,6 +39,7 @@ const ROLE_ORDER: ReviewableRole[] = [
   "COORDINATOR",
   "RELIEF_AGENCY",
   "ORGANIZATION_ADMIN",
+  "RESCUE_ORGANIZATION_ADMIN",
   "INDEPENDENT_TEAM_LEADER",
 ];
 
@@ -48,6 +49,7 @@ const ROLE_LABELS: Record<ReviewableRole, string> = {
   COORDINATOR: "Coordinators",
   RELIEF_AGENCY: "Relief Agencies",
   ORGANIZATION_ADMIN: "Organization Admins",
+  RESCUE_ORGANIZATION_ADMIN: "Rescue Organizations",
   INDEPENDENT_TEAM_LEADER: "Independent Team Leaders",
 };
 
