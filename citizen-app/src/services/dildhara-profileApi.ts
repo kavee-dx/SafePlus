@@ -1,6 +1,7 @@
 import axios from "axios";
 
 import { AuthApiError } from "./dildhara-authApi";
+import type { FieldErrors } from "../utils/dushani-registrationValidation";
 
 export interface ProfileUser {
   id: string;
@@ -29,30 +30,57 @@ export interface Profile {
 const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL?.trim() || "http://localhost:5000/api";
 
+function toApiError(error: unknown, fallback: string): unknown {
+  if (!axios.isAxiosError(error)) return error;
+
+  if (!error.response) {
+    return new AuthApiError(
+      "Cannot reach the server. Check your connection and try again.",
+      null
+    );
+  }
+
+  const body = error.response.data as {
+    message?: string;
+    errors?: FieldErrors;
+  };
+
+  return new AuthApiError(
+    body?.message || fallback,
+    error.response.status,
+    body?.errors ?? {}
+  );
+}
+
+const authHeader = (token: string) => ({
+  headers: { Authorization: `Bearer ${token}` },
+  timeout: 15000,
+});
+
 export async function fetchMyProfile(token: string): Promise<Profile> {
   try {
-    const { data } = await axios.get(`${BASE_URL}/profile/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 15000,
-    });
-
-    return data as Profile;
+    const { data } = await axios.get(
+      `${BASE_URL}/profile/me`,
+      authHeader(token)
+    );
+    return { user: data.user, details: data.details };
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (!error.response) {
-        throw new AuthApiError(
-          "Cannot reach the server. Check your connection and try again.",
-          null
-        );
-      }
+    throw toApiError(error, "Could not load your profile.");
+  }
+}
 
-      throw new AuthApiError(
-        (error.response.data as { message?: string })?.message ||
-          "Could not load your profile.",
-        error.response.status
-      );
-    }
-
-    throw error;
+export async function updateMyProfile(
+  token: string,
+  changes: Record<string, string>
+): Promise<Profile> {
+  try {
+    const { data } = await axios.patch(
+      `${BASE_URL}/profile/me`,
+      changes,
+      authHeader(token)
+    );
+    return { user: data.user, details: data.details };
+  } catch (error) {
+    throw toApiError(error, "Could not save your changes.");
   }
 }

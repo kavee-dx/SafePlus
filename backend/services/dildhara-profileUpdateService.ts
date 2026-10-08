@@ -3,16 +3,28 @@ import {
   normalizeSriLankanNumber,
   validatePayload,
 } from "../validators/registrationValidators";
-import { EDITABLE_FIELDS } from "../validators/dildhara-profileUpdateValidators";
+import {
+  EDITABLE_FIELDS,
+  VEHICLE_FIELDS,
+} from "../validators/dildhara-profileUpdateValidators";
 import { findUserById } from "../repositories/dildhara-profileRepository";
 import { updateProfileRows } from "../repositories/dildhara-profileUpdateRepository";
 import { getMyProfile } from "./dildhara-profileService";
 
+const PHONE_FIELDS = new Set([
+  "phoneNumber",
+  "leaderPhoneNumber",
+  "emergencyContactNumber",
+  "contactPhoneNumber",
+]);
+
+const INTEGER_FIELDS = new Set(["rescueTeamCount", "memberCount"]);
+
 function normalize(field: string, raw: string): string | number | null {
   const value = raw.trim();
 
-  if (field === "phoneNumber") return normalizeSriLankanNumber(value);
-  if (field === "rescueTeamCount") return Number.parseInt(value, 10);
+  if (PHONE_FIELDS.has(field)) return normalizeSriLankanNumber(value);
+  if (INTEGER_FIELDS.has(field)) return Number.parseInt(value, 10);
 
   return value === "" ? null : value;
 }
@@ -44,6 +56,18 @@ export async function updateMyProfile(
 
   if (submitted.length === 0) {
     throw new ApiError(400, "No editable fields were provided.");
+  }
+
+  // Vehicle details can only be edited if a vehicle is already registered.
+  if (submitted.some((field) => VEHICLE_FIELDS.has(field))) {
+    const current = await getMyProfile(userId);
+
+    if (current.details?.hasVehicle !== true) {
+      throw new ApiError(
+        400,
+        "Vehicle details can only be edited when a vehicle is registered on your account."
+      );
+    }
   }
 
   const rules = Object.fromEntries(submitted.map((f) => [f, allowed[f]]));

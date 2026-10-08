@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   LogOut,
   Megaphone,
   ShieldCheck,
+  User,
   Users,
   X,
 } from "lucide-react";
@@ -31,13 +32,22 @@ import NotificationBell from "../components/dushani-NotificationBell";
 import WarningWizard from "../components/dushani-WarningWizard";
 import HazardReportQueue from "./dushani-HazardReportQueue";
 import ClearancePinCard from "../components/dushani-ClearancePinCard";
+import ProfilePage from "./dildhara-ProfilePage";
+import { getStoredDmcToken } from "../services/dmc-authApi";
+import type { PortalAccount } from "../services/dildhara-portalAuthApi";
 
 interface DmcOfficerDashboardProps {
   officer: AuthUser;
   onLogout: () => void;
 }
 
-type DashboardView = "overview" | "reports" | "issue" | "history" | "pin";
+type DashboardView =
+  | "overview"
+  | "reports"
+  | "issue"
+  | "history"
+  | "pin"
+  | "profile";
 
 const VIEW_TITLES: Record<DashboardView, { title: string; subtitle: string }> = {
   overview: {
@@ -60,6 +70,10 @@ const VIEW_TITLES: Record<DashboardView, { title: string; subtitle: string }> = 
     title: "Clearance PIN",
     subtitle: "The operational authorization that releases a broadcast",
   },
+  profile: {
+    title: "My profile",
+    subtitle: "Your account details and contact information",
+  },
 };
 
 export default function DmcOfficerDashboard({
@@ -71,6 +85,31 @@ export default function DmcOfficerDashboard({
   const [wizardReportId, setWizardReportId] = useState<string | undefined>();
   const [wizardKey, setWizardKey] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [displayName, setDisplayName] = useState(officer.fullName);
+
+  // The profile page needs the sign-in token and an account object.
+  const token = getStoredDmcToken();
+
+  const account = useMemo<PortalAccount>(() => {
+    const o = officer as unknown as Record<string, unknown>;
+
+    return {
+      id: String(o.id ?? ""),
+      fullName: displayName,
+      email: String(o.email ?? ""),
+      username: typeof o.username === "string" ? o.username : null,
+      role: String(o.role ?? "DMC_OFFICER"),
+      status: String(o.status ?? "ACTIVE"),
+      interfaces: Array.isArray(o.interfaces)
+        ? (o.interfaces as string[])
+        : ["DMC_PORTAL"],
+    };
+  }, [officer, displayName]);
+
+  // Keeps the callback stable so the profile page doesn't reload repeatedly.
+  const logoutRef = useRef(onLogout);
+  logoutRef.current = onLogout;
+  const handleSessionExpired = useCallback(() => logoutRef.current(), []);
 
   // Only a DMC officer may broadcast; a district officer verifies reports.
   const canIssue = officer.role === "DMC_OFFICER";
@@ -96,6 +135,7 @@ export default function DmcOfficerDashboard({
     ...(canIssue
       ? [{ view: "pin" as DashboardView, label: "Clearance PIN", icon: KeyRound }]
       : []),
+    { view: "profile", label: "My profile", icon: User },
   ];
 
   return (
@@ -140,10 +180,10 @@ export default function DmcOfficerDashboard({
         <div className="dmc-sidebar-footer">
           <div className="dmc-officer-info">
             <div className="dmc-officer-avatar">
-              {officer.fullName.charAt(0).toUpperCase()}
+              {displayName.charAt(0).toUpperCase()}
             </div>
             <div className="dmc-officer-details">
-              <div className="dmc-officer-name">{officer.fullName}</div>
+              <div className="dmc-officer-name">{displayName}</div>
               <div className="dmc-officer-role">{officer.role.replace("_", " ")}</div>
             </div>
           </div>
@@ -164,6 +204,17 @@ export default function DmcOfficerDashboard({
 
           <div className="dmc-header-actions">
             <NotificationBell />
+            <button
+              type="button"
+              className={`dmc-profile-button ${
+                currentView === "profile" ? "dmc-profile-button-active" : ""
+              }`}
+              onClick={() => go("profile")}
+              aria-label="My profile"
+              title="My profile"
+            >
+              {displayName.charAt(0).toUpperCase()}
+            </button>
           </div>
         </header>
 
@@ -196,6 +247,24 @@ export default function DmcOfficerDashboard({
           )}
 
           {currentView === "pin" && <ClearancePinCard />}
+
+          {currentView === "profile" &&
+            (token ? (
+              <ProfilePage
+                token={token}
+                account={account}
+                onProfileSaved={setDisplayName}
+                onSessionExpired={handleSessionExpired}
+              />
+            ) : (
+              <div className="dmc-error-card">
+                <AlertTriangle size={18} />
+                <div>
+                  <h3>Session not found</h3>
+                  <p>Please sign out and sign in again to open your profile.</p>
+                </div>
+              </div>
+            ))}
         </div>
       </main>
 
@@ -882,6 +951,28 @@ const DASHBOARD_STYLES = `
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .dmc-profile-button {
+    width: 42px;
+    height: 42px;
+    border: 2px solid transparent;
+    border-radius: 50%;
+    background: ${Colors.navy};
+    color: ${Colors.white};
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 160ms ease, background 160ms ease;
+  }
+
+  .dmc-profile-button:hover,
+  .dmc-profile-button-active {
+    background: ${Colors.red};
+    border-color: ${Colors.redDark};
   }
 
   .dmc-content-body {
