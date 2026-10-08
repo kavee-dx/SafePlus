@@ -39,10 +39,10 @@ import { getOfficerPinService } from "./dushani-officerPinService";
 import {
   ChannelDispatcher,
   PushNotificationAdapter,
-  SMSFallbackAdapter,
   SirenRelayAdapter,
   type AlertRecipient,
 } from "./dushani-disseminationChannels";
+import { SmsAlertChannel, defaultInstruction } from "./dushani-smsGatewayService";
 import { getAuditLogger } from "./dushani-auditLoggerService";
 
 const boundaries = getDistrictBoundaryService();
@@ -607,7 +607,7 @@ function createDispatcher(): ChannelDispatcher {
   const dispatcher = new ChannelDispatcher();
 
   dispatcher.registerChannel(new PushNotificationAdapter());
-  dispatcher.registerChannel(new SMSFallbackAdapter());
+  dispatcher.registerChannel(new SmsAlertChannel());
   dispatcher.registerChannel(new SirenRelayAdapter());
 
   return dispatcher;
@@ -637,12 +637,6 @@ function severityLabel(severityLevel: string): string {
   };
 
   return labels[severityLevel] ?? severityLevel;
-}
-
-function defaultInstruction(severityLevel: string): string {
-  return severityLevel === "CRITICAL"
-    ? "Move to high ground or a designated evacuation centre now."
-    : "Stay alert, keep your phone with you and follow local DMC instructions.";
 }
 
 function generateWarningId(): string {

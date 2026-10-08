@@ -32,6 +32,7 @@ async function migrate() {
       "disaster_warnings.sql",
       "dmc_officer_clearance_pin.sql",
       "users_alert_targets.sql",
+      "alert_sms_messages.sql",
       "amasha-super_admins.sql",
       "amasha-users_verification_columns.sql"
     ];
