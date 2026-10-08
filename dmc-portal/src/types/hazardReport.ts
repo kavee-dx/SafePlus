@@ -42,6 +42,7 @@ export type NotificationType =
   | "REPORT_SUBMITTED"
   | "REPORT_VERIFIED"
   | "REPORT_REJECTED"
+  | "REPORT_INFO_REQUESTED"
   | "WARNING_CREATED";
 
 export interface PortalNotification {

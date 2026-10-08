@@ -30,7 +30,7 @@ import {
 } from "../services/dushani-alertApi";
 import NotificationBell from "../components/dushani-NotificationBell";
 import WarningWizard from "../components/dushani-WarningWizard";
-import HazardReportQueue from "./dushani-HazardReportQueue";
+import ReportCenter from "./amasha-ReportCenter";
 import ClearancePinCard from "../components/dushani-ClearancePinCard";
 import ProfilePage from "./dildhara-ProfilePage";
 import { getStoredDmcToken } from "../services/dmc-authApi";
@@ -229,7 +229,7 @@ export default function DmcOfficerDashboard({
           )}
 
           {currentView === "reports" && (
-            <HazardReportQueue onIssueWarning={(reportId) => openWizard(reportId)} />
+            <ReportCenter onIssueWarning={(reportId) => openWizard(reportId)} />
           )}
 
           {currentView === "issue" && (
