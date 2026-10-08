@@ -24,9 +24,25 @@ interface HomeScreenProps {
   token: string;
   account: LoginAccount;
   onSignOut: () => void;
+  onReportHazard?: () => void;
+  onOpenMyReports?: () => void;
+  onOpenAlerts?: () => void;
+  onFindReliefCenters?: () => void;
+  onAlertsChanged?: () => void;
+  unreadCount?: number;
 }
 
-export default function HomeScreen({ token, account, onSignOut }: HomeScreenProps) {
+export default function HomeScreen({
+  token,
+  account,
+  onSignOut,
+  onReportHazard,
+  onOpenMyReports,
+  onOpenAlerts,
+  onFindReliefCenters,
+  onAlertsChanged,
+  unreadCount = 0,
+}: HomeScreenProps) {
   const [tab, setTab] = useState<TabKey>("home");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -64,17 +80,24 @@ export default function HomeScreen({ token, account, onSignOut }: HomeScreenProp
     }
 
     if (tab === "alerts") {
-      return <AlertsTab />;
+      return <AlertsTab token={token} onAlertsChanged={onAlertsChanged} />;
     }
 
     if (errorMessage) {
       return (
-        <Text className="text-base font-bold text-red-600">{errorMessage}</Text>
+        <View className="p-5 border border-red-200 rounded-3xl bg-red-50">
+          <Text className="text-base font-bold text-red-600">{errorMessage}</Text>
+        </View>
       );
     }
 
     if (!profile) {
-      return <ActivityIndicator size="large" color="#1B7F4B" />;
+      return (
+        <View className="items-center justify-center py-24">
+          <ActivityIndicator size="large" color="#1B7F4B" />
+          <Text className="mt-4 text-sm text-safeplus-muted">Loading your dashboard…</Text>
+        </View>
+      );
     }
 
     if (tab === "profile") {
@@ -88,7 +111,17 @@ export default function HomeScreen({ token, account, onSignOut }: HomeScreenProp
       );
     }
 
-    return <HomeTab profile={profile} onOpenProfile={() => setTab("profile")} />;
+    return (
+      <HomeTab
+        profile={profile}
+        onOpenProfile={() => setTab("profile")}
+        onReportHazard={onReportHazard}
+        onOpenMyReports={onOpenMyReports}
+        onOpenAlerts={onOpenAlerts}
+        onFindReliefCenters={onFindReliefCenters}
+        unreadCount={unreadCount}
+      />
+    );
   };
 
   return (
@@ -109,6 +142,7 @@ export default function HomeScreen({ token, account, onSignOut }: HomeScreenProp
           className="flex-1"
           contentContainerClassName="px-5 pt-14 pb-8 w-full max-w-xl self-center"
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {renderContent()}
         </ScrollView>
