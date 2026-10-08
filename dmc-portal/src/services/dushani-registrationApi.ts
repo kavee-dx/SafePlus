@@ -13,13 +13,18 @@ export interface RegisteredAccount {
 }
 
 export class RegistrationApiError extends Error {
+  status: number | null;
+  fieldErrors: FieldErrors;
+
   constructor(
     message: string,
-    readonly status: number | null,
-    readonly fieldErrors: FieldErrors = {}
+    status: number | null,
+    fieldErrors: FieldErrors = {}
   ) {
     super(message);
     this.name = "RegistrationApiError";
+    this.status = status;
+    this.fieldErrors = fieldErrors;
   }
 }
 
