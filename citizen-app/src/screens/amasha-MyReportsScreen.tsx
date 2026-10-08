@@ -29,7 +29,7 @@ const STATUS_COPY: Record<
   ExtendedReportStatus,
   { label: string; tone: "active" | "pending" }
 > = {
-  PENDING_VERIFICATION: { label: "Awaiting verification", tone: "pending" },
+  PENDING_VERIFICATION: { label: "Pending Verification", tone: "pending" },
   ADDITIONAL_INFO_REQUIRED: { label: "More information required", tone: "pending" },
   VERIFIED: { label: "Verified", tone: "active" },
   REJECTED: { label: "Rejected", tone: "pending" },
@@ -155,19 +155,24 @@ export default function MyReportsScreen({
 
       {drafts.length > 0 && (
         <FormSection
-          title="Pending synchronization"
-          caption="Saved on this device because the network was unavailable."
+          title="Pending Synchronization"
+          caption="Saved securely on this device because the network was unavailable."
           icon="cloud-offline-outline"
         >
           {drafts.map((draft) => (
             <View key={draft.id} className="mb-3">
-              <Text className="text-sm font-extrabold text-safeplus-navy">
-                {labelFor(HAZARDS, draft.payload.hazardType)} ·{" "}
-                {draft.payload.locationDistrict}
-              </Text>
-              <Text className="mt-1 text-xs text-safeplus-slate">
-                Saved {new Date(draft.savedAt).toLocaleString()} · {draft.id}
-              </Text>
+              <View className="flex-row items-start justify-between">
+                <View className="flex-1 mr-3">
+                  <Text className="text-sm font-extrabold text-safeplus-navy">
+                    {labelFor(HAZARDS, draft.payload.hazardType)} ·{" "}
+                    {draft.payload.locationDistrict}
+                  </Text>
+                  <Text className="mt-1 text-xs text-safeplus-slate">
+                    Saved {new Date(draft.savedAt).toLocaleString()} · {draft.id}
+                  </Text>
+                </View>
+                <StatusPill tone="pending" label="Pending Synchronization" />
+              </View>
             </View>
           ))}
           <Pressable
