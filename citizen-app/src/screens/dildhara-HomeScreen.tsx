@@ -18,7 +18,11 @@ import BottomTabBar, { type TabKey } from "../components/dildhara-BottomTabBar";
 import AccountScreen from "./dildhara-AccountScreen";
 import AlertsTab from "./dildhara-AlertsTab";
 import HomeTab from "./dildhara-HomeTab";
+import MyResourcesScreen from "./dildhara-MyResourcesScreen";
 import ProfileScreen from "./dildhara-ProfileScreen";
+import ProvideResourceScreen from "./dildhara-ProvideResourceScreen";
+
+type HomeView = "none" | "resources" | "provide";
 
 interface HomeScreenProps {
   token: string;
@@ -29,6 +33,7 @@ interface HomeScreenProps {
   onOpenAlerts?: () => void;
   onFindReliefCenters?: () => void;
   onAlertsChanged?: () => void;
+  onAction?: (key: string) => void;
   unreadCount?: number;
 }
 
@@ -41,9 +46,11 @@ export default function HomeScreen({
   onOpenAlerts,
   onFindReliefCenters,
   onAlertsChanged,
+  onAction,
   unreadCount = 0,
 }: HomeScreenProps) {
   const [tab, setTab] = useState<TabKey>("home");
+  const [view, setView] = useState<HomeView>("none");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -73,6 +80,20 @@ export default function HomeScreen({
       cancelled = true;
     };
   }, [token, onSignOut]);
+
+  const handleAction = (key: string) => {
+    if (key === "my-resources") {
+      setView("resources");
+      return;
+    }
+
+    if (key === "provide-resource") {
+      setView("provide");
+      return;
+    }
+
+    onAction?.(key);
+  };
 
   const renderContent = () => {
     if (tab === "account") {
@@ -111,6 +132,30 @@ export default function HomeScreen({
       );
     }
 
+    if (view === "resources") {
+      return (
+        <MyResourcesScreen
+          token={token}
+          backLabel="← Back to Home"
+          onProvideResource={() => setView("provide")}
+          onBack={() => setView("none")}
+          onSessionExpired={onSignOut}
+        />
+      );
+    }
+
+    if (view === "provide") {
+      return (
+        <ProvideResourceScreen
+          token={token}
+          cancelLabel="Back to Home"
+          onSuccess={() => setView("resources")}
+          onCancel={() => setView("none")}
+          onSessionExpired={onSignOut}
+        />
+      );
+    }
+
     return (
       <HomeTab
         profile={profile}
@@ -119,6 +164,7 @@ export default function HomeScreen({
         onOpenMyReports={onOpenMyReports}
         onOpenAlerts={onOpenAlerts}
         onFindReliefCenters={onFindReliefCenters}
+        onAction={handleAction}
         unreadCount={unreadCount}
       />
     );
@@ -148,7 +194,13 @@ export default function HomeScreen({
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <BottomTabBar active={tab} onChange={setTab} />
+      <BottomTabBar
+        active={tab}
+        onChange={(next) => {
+          setView("none");
+          setTab(next);
+        }}
+      />
     </View>
   );
 }

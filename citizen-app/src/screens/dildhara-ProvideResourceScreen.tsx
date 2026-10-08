@@ -16,12 +16,11 @@ import {
 
 import { AuthApiError } from "../services/dildhara-authApi";
 
-import {
-  createResource,
-} from "../services/dildhara-resourceApi";
+import { createResource } from "../services/dildhara-resourceApi";
 
 interface Props {
   token: string;
+  cancelLabel?: string;
   onSuccess: () => void;
   onCancel: () => void;
   onSessionExpired: () => void;
@@ -51,10 +50,7 @@ const UNITS = [
   "Units",
 ];
 
-type DateField =
-  | "availableFrom"
-  | "availableUntil"
-  | "expiryDate";
+type DateField = "availableFrom" | "availableUntil" | "expiryDate";
 
 function startOfToday(): Date {
   const date = new Date();
@@ -88,6 +84,7 @@ function displayDate(value: string): string {
 
 export default function ProvideResourceScreen({
   token,
+  cancelLabel = "Back to Profile",
   onSuccess,
   onCancel,
   onSessionExpired,
@@ -106,25 +103,12 @@ export default function ProvideResourceScreen({
   const [availableUntil, setAvailableUntil] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
 
-  const [datePicker, setDatePicker] = useState<DateField | null>(
-    null
-  );
+  const [datePicker, setDatePicker] = useState<DateField | null>(null);
 
   const [errorMessage, setErrorMessage] = useState("");
   const [saving, setSaving] = useState(false);
 
-  /*
-   * Only allow digits.
-   *
-   * This prevents:
-   * -
-   * +
-   * .
-   * ,
-   * letters
-   * spaces
-   * other symbols
-   */
+  /* Only allow digits in the quantity field. */
   const handleQuantityChange = (value: string) => {
     const onlyNumbers = value.replace(/[^0-9]/g, "");
 
@@ -141,28 +125,6 @@ export default function ProvideResourceScreen({
     }
 
     return expiryDate;
-  };
-
-  const getMinimumDate = (field: DateField): Date => {
-    const today = startOfToday();
-
-    if (field === "availableUntil" && availableFrom) {
-      const fromDate = parseDate(availableFrom);
-
-      if (fromDate && fromDate > today) {
-        return fromDate;
-      }
-    }
-
-    if (field === "expiryDate" && availableFrom) {
-      const fromDate = parseDate(availableFrom);
-
-      if (fromDate && fromDate > today) {
-        return fromDate;
-      }
-    }
-
-    return today;
   };
 
   const parseDate = (value: string): Date | null => {
@@ -191,6 +153,28 @@ export default function ProvideResourceScreen({
     return date;
   };
 
+  const getMinimumDate = (field: DateField): Date => {
+    const today = startOfToday();
+
+    if (field === "availableUntil" && availableFrom) {
+      const fromDate = parseDate(availableFrom);
+
+      if (fromDate && fromDate > today) {
+        return fromDate;
+      }
+    }
+
+    if (field === "expiryDate" && availableFrom) {
+      const fromDate = parseDate(availableFrom);
+
+      if (fromDate && fromDate > today) {
+        return fromDate;
+      }
+    }
+
+    return today;
+  };
+
   const openDatePicker = (field: DateField) => {
     setDatePicker(field);
   };
@@ -216,32 +200,20 @@ export default function ProvideResourceScreen({
     if (datePicker === "availableFrom") {
       setAvailableFrom(formatted);
 
-      /*
-       * If the new Available From is after
-       * Available Until, clear Available Until.
-       */
+      /* Clear Available Until if it is now before Available From. */
       if (availableUntil) {
         const untilDate = parseDate(availableUntil);
 
-        if (
-          untilDate &&
-          selectedDate > untilDate
-        ) {
+        if (untilDate && selectedDate > untilDate) {
           setAvailableUntil("");
         }
       }
 
-      /*
-       * If the new Available From is after
-       * Expiry Date, clear Expiry Date.
-       */
+      /* Clear Expiry Date if it is now before Available From. */
       if (expiryDate) {
         const expiry = parseDate(expiryDate);
 
-        if (
-          expiry &&
-          selectedDate > expiry
-        ) {
+        if (expiry && selectedDate > expiry) {
           setExpiryDate("");
         }
       }
@@ -288,19 +260,10 @@ export default function ProvideResourceScreen({
       return;
     }
 
-    /*
-     * Because the input has already been filtered,
-     * Number() will only receive digits.
-     */
     const parsedQuantity = Number(quantity);
 
-    if (
-      !Number.isInteger(parsedQuantity) ||
-      parsedQuantity <= 0
-    ) {
-      setErrorMessage(
-        "Quantity must be a whole number greater than zero."
-      );
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
+      setErrorMessage("Quantity must be a whole number greater than zero.");
       return;
     }
 
@@ -315,51 +278,30 @@ export default function ProvideResourceScreen({
     const untilDate = parseDate(availableUntil);
     const expiry = parseDate(expiryDate);
 
-    /*
-     * Extra validation on the frontend.
-     * The backend also validates the dates.
-     */
+    /* Extra frontend validation. The backend also validates the dates. */
 
     if (fromDate && fromDate < today) {
-      setErrorMessage(
-        "Available from cannot be a past date."
-      );
+      setErrorMessage("Available from cannot be a past date.");
       return;
     }
 
     if (untilDate && untilDate < today) {
-      setErrorMessage(
-        "Available until cannot be a past date."
-      );
+      setErrorMessage("Available until cannot be a past date.");
       return;
     }
 
     if (expiry && expiry < today) {
-      setErrorMessage(
-        "Expiry date cannot be a past date."
-      );
+      setErrorMessage("Expiry date cannot be a past date.");
       return;
     }
 
-    if (
-      fromDate &&
-      untilDate &&
-      untilDate < fromDate
-    ) {
-      setErrorMessage(
-        "Available until cannot be before available from."
-      );
+    if (fromDate && untilDate && untilDate < fromDate) {
+      setErrorMessage("Available until cannot be before available from.");
       return;
     }
 
-    if (
-      fromDate &&
-      expiry &&
-      expiry < fromDate
-    ) {
-      setErrorMessage(
-        "Expiry date cannot be before available from."
-      );
+    if (fromDate && expiry && expiry < fromDate) {
+      setErrorMessage("Expiry date cannot be before available from.");
       return;
     }
 
@@ -374,23 +316,14 @@ export default function ProvideResourceScreen({
         unit,
         location: location.trim(),
         district: district.trim(),
-        availableFrom: availableFrom
-          ? `${availableFrom}T00:00:00`
-          : undefined,
+        availableFrom: availableFrom ? `${availableFrom}T00:00:00` : undefined,
         availableUntil: availableUntil
           ? `${availableUntil}T23:59:59`
           : undefined,
-        expiryDate: expiryDate
-          ? `${expiryDate}T23:59:59`
-          : undefined,
+        expiryDate: expiryDate ? `${expiryDate}T23:59:59` : undefined,
       });
 
-      /*
-       * Parent ProfileScreen handles this.
-       *
-       * We will configure it to return directly
-       * to the profile page.
-       */
+      /* The parent decides where to go next (profile or resources list). */
       onSuccess();
     } catch (error) {
       if (error instanceof AuthApiError) {
@@ -401,9 +334,7 @@ export default function ProvideResourceScreen({
 
         setErrorMessage(error.message);
       } else {
-        setErrorMessage(
-          "Something went wrong. Please try again."
-        );
+        setErrorMessage("Something went wrong. Please try again.");
       }
     } finally {
       setSaving(false);
@@ -418,9 +349,7 @@ export default function ProvideResourceScreen({
     const minimumDate = getMinimumDate(datePicker);
     const pickerDate = getPickerDate(datePicker);
 
-    /*
-     * Native Android / iOS calendar/date picker.
-     */
+    /* Native Android / iOS date picker. */
     if (Platform.OS !== "web") {
       return (
         <DateTimePicker
@@ -433,9 +362,7 @@ export default function ProvideResourceScreen({
       );
     }
 
-    /*
-     * Web fallback.
-     */
+    /* Web fallback. */
     return (
       <Modal
         visible
@@ -486,9 +413,7 @@ export default function ProvideResourceScreen({
               onPress={closeDatePicker}
               className="items-center justify-center h-12 mt-4 rounded-2xl bg-safeplus-green"
             >
-              <Text className="font-extrabold text-white">
-                Done
-              </Text>
+              <Text className="font-extrabold text-white">Done</Text>
             </Pressable>
           </View>
         </View>
@@ -498,13 +423,25 @@ export default function ProvideResourceScreen({
 
   return (
     <View>
+      <Pressable
+        onPress={onCancel}
+        disabled={saving}
+        accessibilityRole="button"
+        accessibilityLabel={cancelLabel}
+        className="self-start px-4 py-2 mb-4 bg-white border rounded-xl border-safeplus-border"
+      >
+        <Text className="text-sm font-extrabold text-safeplus-darkGreen">
+          ← {cancelLabel}
+        </Text>
+      </Pressable>
+
       <Text className="mb-1 text-2xl font-extrabold text-safeplus-darkGreen">
         Provide Resource
       </Text>
 
       <Text className="mb-6 text-sm leading-5 text-safeplus-muted">
-        Add a relief resource that you are willing to provide
-        for emergency operations.
+        Add a relief resource that you are willing to provide for emergency
+        operations.
       </Text>
 
       <View className="p-5 mb-4 bg-white border rounded-3xl border-safeplus-border">
@@ -561,9 +498,7 @@ export default function ProvideResourceScreen({
       />
 
       <View className="mb-4">
-        <Text className="mb-2 text-sm font-bold text-safeplus-text">
-          Unit
-        </Text>
+        <Text className="mb-2 text-sm font-bold text-safeplus-text">Unit</Text>
 
         <View className="flex-row flex-wrap gap-2">
           {UNITS.map((item) => (
@@ -571,16 +506,12 @@ export default function ProvideResourceScreen({
               key={item}
               onPress={() => setUnit(item)}
               className={`px-3 py-2 rounded-xl ${
-                unit === item
-                  ? "bg-safeplus-green"
-                  : "bg-safeplus-paleGreen"
+                unit === item ? "bg-safeplus-green" : "bg-safeplus-paleGreen"
               }`}
             >
               <Text
                 className={`text-xs font-bold ${
-                  unit === item
-                    ? "text-white"
-                    : "text-safeplus-darkGreen"
+                  unit === item ? "text-white" : "text-safeplus-darkGreen"
                 }`}
               >
                 {item}
@@ -635,7 +566,7 @@ export default function ProvideResourceScreen({
           className="items-center justify-center flex-1 h-12 bg-white border rounded-2xl border-safeplus-border"
         >
           <Text className="text-base font-extrabold text-safeplus-text">
-            Back to Profile
+            {cancelLabel}
           </Text>
         </Pressable>
 
@@ -670,9 +601,7 @@ function DateFieldButton({
 }) {
   return (
     <View className="mb-4">
-      <Text className="mb-2 text-sm font-bold text-safeplus-text">
-        {label}
-      </Text>
+      <Text className="mb-2 text-sm font-bold text-safeplus-text">{label}</Text>
 
       <Pressable
         onPress={onPress}
@@ -688,9 +617,7 @@ function DateFieldButton({
           {displayDate(value)}
         </Text>
 
-        <Text className="text-lg">
-          📅
-        </Text>
+        <Text className="text-lg">📅</Text>
       </Pressable>
     </View>
   );
@@ -713,9 +640,7 @@ function FormField({
 }) {
   return (
     <View className="mb-4">
-      <Text className="mb-2 text-sm font-bold text-safeplus-text">
-        {label}
-      </Text>
+      <Text className="mb-2 text-sm font-bold text-safeplus-text">{label}</Text>
 
       <TextInput
         value={value}

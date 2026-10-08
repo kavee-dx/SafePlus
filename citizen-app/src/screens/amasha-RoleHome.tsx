@@ -42,10 +42,10 @@ const ROLE_HOME: Record<string, RoleConfig> = {
     ],
   },
   RELIEF_AGENCY: {
-    message: "Request supplies and track incoming aid.",
+    message: "Offer resources and support relief operations.",
     actions: [
-      { key: "request-supplies", icon: "cube-outline", label: "Request supplies", hint: "Create a request" },
-      { key: "incoming-aid", icon: "trail-sign-outline", label: "Incoming aid", hint: "Track deliveries" },
+      { key: "my-resources", icon: "cube-outline", label: "My resources", hint: "View what you offered" },
+      { key: "provide-resource", icon: "add-circle-outline", label: "Provide resource", hint: "Add a new resource" },
     ],
   },
   ORGANIZATION_TEAM_LEADER: {
