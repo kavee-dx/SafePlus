@@ -49,7 +49,7 @@ const ORGANIZATION_TYPES = [
   "Government Agency",
   "NGO",
   "Military",
-  "Other Relief Organization",
+  "Other Resource Organization",
 ];
 
 export default function ReliefAgencyRegistrationScreen({

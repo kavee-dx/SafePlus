@@ -12,6 +12,7 @@ import geoRoutes from "./dushani-geoRoutes";
 import pinRoutes from "./dushani-pinRoutes";
 import alertTargetRoutes from "./dushani-alertTargetRoutes";
 import alertInboxRoutes from "./dushani-alertInboxRoutes";
+import resourceRoutes from "./dildhara-resourceRoutes";
 import rescueOrganizationRoutes from "./kaveesha-rescueOrgRoutes";
 import rescueTeamRoutes from "./kaveesha-rescueTeamRoutes";
 
@@ -35,6 +36,7 @@ router.use("/geo", geoRoutes);
 router.use("/clearance-pin", pinRoutes);
 router.use("/alert-target", alertTargetRoutes);
 router.use("/alert-inbox", alertInboxRoutes);
+router.use("/resources", resourceRoutes);
 router.use("/rescue-organization", rescueOrganizationRoutes);
 router.use("/rescue-teams", rescueTeamRoutes);
 
