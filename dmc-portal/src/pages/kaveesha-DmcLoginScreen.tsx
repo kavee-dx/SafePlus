@@ -1,4 +1,5 @@
-﻿import { useState } from "react";
+
+import { useState } from "react";
 import type { FormEvent } from "react";
 import {
   Activity,
@@ -10,13 +11,10 @@ import {
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
-
 import { Colors } from "../constants/theme";
-import { loginDmcOfficer } from "../services/dmc-authApi";
-import type { AuthUser } from "../types/auth";
 
 interface DmcLoginScreenProps {
-  onLogin: (user: AuthUser, token: string) => void;
+  onLogin: (email: string, password: string) => Promise<void>;
   onShowRegistration?: () => void;
   onShowAdminLogin?: () => void;
 }
@@ -31,7 +29,7 @@ export default function KaveeshaDmcLoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,24 +40,18 @@ export default function KaveeshaDmcLoginScreen({
       return;
     }
 
-    setIsLoading(true);
+    setSubmitting(true);
 
     try {
-      const { token, user } = await loginDmcOfficer({
-        email: email.trim(),
-        password,
-        interface: "DMC_PORTAL",
-      });
-
-      onLogin(user, token);
-    } catch (err: any) {
+      await onLogin(email.trim(), password);
+    } catch (err) {
       setError(
-        err.response?.data?.message ||
-          err.message ||
-          "Login failed. Please try again."
+        err instanceof Error
+          ? err.message
+          : "Unable to sign in. Please try again."
       );
     } finally {
-      setIsLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -68,7 +60,6 @@ export default function KaveeshaDmcLoginScreen({
       {/* Desktop / Tablet operations panel */}
       <section className="dmc-operations-panel">
         <div className="dmc-panel-grid" />
-
         <div className="dmc-panel-circle dmc-panel-circle-large" />
         <div className="dmc-panel-circle dmc-panel-circle-small" />
 
@@ -150,7 +141,6 @@ export default function KaveeshaDmcLoginScreen({
               <strong>
                 Safe<span>Plus</span>
               </strong>
-
               <small>DMC OPERATIONS</small>
             </div>
           </div>
@@ -214,7 +204,9 @@ export default function KaveeshaDmcLoginScreen({
                 <button
                   type="button"
                   className="dmc-password-toggle"
-                  onClick={() => setShowPassword((value) => !value)}
+                  onClick={() =>
+                    setShowPassword((value) => !value)
+                  }
                   aria-label={
                     showPassword ? "Hide password" : "Show password"
                   }
@@ -232,8 +224,11 @@ export default function KaveeshaDmcLoginScreen({
               <input
                 type="checkbox"
                 checked={rememberMe}
-                onChange={(event) => setRememberMe(event.target.checked)}
+                onChange={(event) =>
+                  setRememberMe(event.target.checked)
+                }
               />
+
               <span>Keep me signed in</span>
             </label>
 
@@ -246,14 +241,17 @@ export default function KaveeshaDmcLoginScreen({
             <button
               type="submit"
               className="dmc-submit-button"
-              disabled={isLoading}
+              disabled={submitting}
             >
-              {isLoading ? "Signing in..." : "Sign in to DMC Portal"}
+              {submitting
+                ? "Signing in..."
+                : "Sign in to DMC Portal"}
             </button>
 
             {onShowRegistration && (
               <div className="dmc-register-link">
                 <span>New to SafePlus?</span>
+
                 <button
                   type="button"
                   onClick={onShowRegistration}
@@ -266,6 +264,7 @@ export default function KaveeshaDmcLoginScreen({
             {onShowAdminLogin && (
               <div className="dmc-register-link">
                 <span>Are you an administrator?</span>
+
                 <button
                   type="button"
                   onClick={onShowAdminLogin}
@@ -677,6 +676,11 @@ export default function KaveeshaDmcLoginScreen({
             box-shadow: 0 14px 30px ${Colors.red}35;
           }
 
+          .dmc-submit-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+          }
+
           .dmc-security-notice {
             display: flex;
             gap: 10px;
@@ -932,4 +936,4 @@ export default function KaveeshaDmcLoginScreen({
     </div>
   );
 }
-
+```
