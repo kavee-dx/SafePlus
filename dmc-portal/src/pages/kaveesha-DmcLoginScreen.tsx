@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 
 import { Colors } from "../constants/theme";
+import { loginDmcOfficer } from "../services/dmc-authApi";
+import type { AuthUser } from "../types/auth";
 
 interface DmcLoginScreenProps {
-  onLogin: () => void;
+  onLogin: (user: AuthUser, token: string) => void;
   onShowRegistration?: () => void;
   onShowAdminLogin?: () => void;
 }
@@ -29,8 +31,9 @@ export default function KaveeshaDmcLoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
 
@@ -39,7 +42,25 @@ export default function KaveeshaDmcLoginScreen({
       return;
     }
 
-    onLogin();
+    setIsLoading(true);
+
+    try {
+      const { token, user } = await loginDmcOfficer({
+        email: email.trim(),
+        password,
+        interface: "DMC_PORTAL",
+      });
+
+      onLogin(user, token);
+    } catch (err: any) {
+      setError(
+        err.response?.data?.message ||
+          err.message ||
+          "Login failed. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -222,8 +243,12 @@ export default function KaveeshaDmcLoginScreen({
               </div>
             )}
 
-            <button type="submit" className="dmc-submit-button">
-              Sign in to DMC Portal
+            <button
+              type="submit"
+              className="dmc-submit-button"
+              disabled={isLoading}
+            >
+              {isLoading ? "Signing in..." : "Sign in to DMC Portal"}
             </button>
 
             {onShowRegistration && (

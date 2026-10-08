@@ -28,6 +28,10 @@ async function migrate() {
       "team_leaders.sql",
       "district_officers.sql",
       "dmc_officers.sql",
+      "hazard_reports.sql",
+      "disaster_warnings.sql",
+      "dmc_officer_clearance_pin.sql",
+      "users_alert_targets.sql",
       "amasha-super_admins.sql",
       "amasha-users_verification_columns.sql"
     ];
