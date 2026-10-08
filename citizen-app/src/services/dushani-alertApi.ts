@@ -51,6 +51,24 @@ export interface AlertTarget {
   longitude?: number;
 }
 
+/** One emergency text as it sits on this handset. */
+export interface DeliveredAlert {
+  id: string;
+  warningId: string;
+  senderId: string;
+  levelLabel: string;
+  areaLabel: string;
+  instruction: string;
+  body: string;
+  deliveredAt: string;
+  readAt?: string;
+  warningStatus: string;
+  hazardType: string;
+  severityLevel: string;
+  targetDistrict: string;
+  expiresAt?: string;
+}
+
 function request(
   token?: string,
   extra: AxiosRequestConfig = {}
@@ -148,6 +166,32 @@ export async function saveAlertTarget(
 
   try {
     await axios.put(`${BASE_URL}/alert-target`, target, request(token));
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/**
+ * The texts the warning service has actually delivered to this number.
+ */
+export async function fetchAlertInbox(
+  token: string
+): Promise<{ alerts: DeliveredAlert[]; unreadCount: number }> {
+  try {
+    const { data } = await axios.get<{
+      messages: DeliveredAlert[];
+      unreadCount: number;
+    }>(`${BASE_URL}/alert-inbox`, request(token));
+
+    return { alerts: data.messages, unreadCount: data.unreadCount };
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+export async function markAlertRead(token: string, messageId: string): Promise<void> {
+  try {
+    await axios.put(`${BASE_URL}/alert-inbox/${messageId}/read`, {}, request(token));
   } catch (error) {
     throw toError(error);
   }

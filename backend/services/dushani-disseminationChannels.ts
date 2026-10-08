@@ -17,10 +17,13 @@ export interface TrilingualPayload {
 }
 
 export interface DispatchRequest {
+  /** UUID of the warning row; `warningId` is the public reference. */
+  warningInternalId: string;
   warningId: string;
   hazardType: string;
   severityLevel: string;
   targetDistrict: string;
+  safetyInstructions?: string;
   payload: TrilingualPayload;
   recipients: AlertRecipient[];
 }
@@ -227,12 +230,6 @@ export class PushNotificationAdapter extends GatewayChannel {
   }
 }
 
-export class SMSFallbackAdapter extends GatewayChannel {
-  constructor(endpoint = process.env.SMSC_ADDRESS, transport?: Transport) {
-    super(ChannelType.SMS, { kind: "sms", endpoint, transport });
-  }
-}
-
 export class SirenRelayAdapter extends GatewayChannel {
   constructor(endpoint = process.env.SIREN_RELAY_URL, transport?: Transport) {
     super(ChannelType.SIREN, { kind: "siren", endpoint, transport });
@@ -257,10 +254,12 @@ export class ChannelDispatcher {
     recipients: AlertRecipient[]
   ): Promise<DispatchOutcome> {
     const request: DispatchRequest = {
+      warningInternalId: warning.id,
       warningId: warning.warningId,
       hazardType: warning.hazardType,
       severityLevel: warning.severityLevel,
       targetDistrict: warning.targetDistrict,
+      safetyInstructions: warning.safetyInstructions,
       payload: {
         englishText: warning.englishMessage,
         sinhalaText: warning.sinhalaMessage,
@@ -361,14 +360,4 @@ async function withDeadline(
       clearTimeout(timer);
     }
   }
-}
-
-export function createDefaultDispatcher(): ChannelDispatcher {
-  const dispatcher = new ChannelDispatcher();
-
-  dispatcher.registerChannel(new PushNotificationAdapter());
-  dispatcher.registerChannel(new SMSFallbackAdapter());
-  dispatcher.registerChannel(new SirenRelayAdapter());
-
-  return dispatcher;
 }

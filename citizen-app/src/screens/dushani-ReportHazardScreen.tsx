@@ -136,7 +136,7 @@ export default function ReportHazardScreen({
     return Object.keys(next).length === 0;
   }
 
-  async function useMyLocation() {
+  async function captureMyLocation() {
     setLocating(true);
     setLocateError(null);
 
@@ -297,7 +297,7 @@ export default function ReportHazardScreen({
         )}
 
         <Pressable
-          onPress={() => void useMyLocation()}
+          onPress={() => void captureMyLocation()}
           accessibilityRole="button"
           disabled={locating}
           className="flex-row items-center self-start px-4 h-12 mt-5 rounded-xl border border-safeplus-hairline bg-safeplus-fieldBg active:opacity-80 disabled:opacity-60"

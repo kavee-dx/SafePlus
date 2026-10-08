@@ -10,6 +10,7 @@ import notificationRoutes from "./dushani-notificationRoutes";
 import geoRoutes from "./dushani-geoRoutes";
 import pinRoutes from "./dushani-pinRoutes";
 import alertTargetRoutes from "./dushani-alertTargetRoutes";
+import alertInboxRoutes from "./dushani-alertInboxRoutes";
 
 const router = Router();
 
@@ -29,5 +30,6 @@ router.use("/notifications", notificationRoutes);
 router.use("/geo", geoRoutes);
 router.use("/clearance-pin", pinRoutes);
 router.use("/alert-target", alertTargetRoutes);
+router.use("/alert-inbox", alertInboxRoutes);
 
 export default router;
