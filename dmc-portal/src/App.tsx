@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import KaveeshaDmcLoginScreen from "./pages/kaveesha-DmcLoginScreen";
 import KaveeshaDmcSplashScreen from "./pages/kaveesha-DmcSplashScreen";
@@ -10,7 +10,14 @@ import OrganizationAdminRegistration from "./pages/dushani-OrganizationAdminRegi
 import RegistrationSuccessPage from "./pages/dushani-RegistrationSuccessPage";
 import AdminLoginScreen from "./pages/amasha-AdminLoginScreen";
 import AdminDashboard from "./pages/amasha-AdminDashboard";
+import PortalLayout, { type PortalPage } from "./pages/dildhara-PortalLayout";
+import DashboardPage from "./pages/dildhara-DashboardPage";
+import ProfilePage from "./pages/dildhara-ProfilePage";
 import { getStoredAdmin, getStoredToken } from "./services/amasha-adminApi";
+import {
+  portalLogin,
+  type PortalSession,
+} from "./services/dildhara-portalAuthApi";
 import type { AdminUser } from "./types/auth";
 
 type ScreenType =
@@ -23,7 +30,8 @@ type ScreenType =
   | "organization-admin-registration"
   | "registration-success"
   | "admin-login"
-  | "admin-dashboard";
+  | "admin-dashboard"
+  | "portal";
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("splash");
@@ -31,15 +39,31 @@ export default function App() {
   const [admin, setAdmin] = useState<AdminUser | null>(() =>
     getStoredToken() ? getStoredAdmin() : null
   );
+  const [session, setSession] = useState<PortalSession | null>(null);
+  const [portalPage, setPortalPage] = useState<PortalPage>("dashboard");
 
   const handleSplashFinish = () => {
     setCurrentScreen("login");
   };
 
-  const handleLogin = () => {
-    console.log("DMC login submitted");
-    // TODO: Implement actual login logic
+  // Errors thrown here are caught and shown by the login screen.
+  const handleLogin = async (email: string, password: string) => {
+    const result = await portalLogin(email, password);
+    setSession(result);
+    setPortalPage("dashboard");
+    setCurrentScreen("portal");
   };
+
+  const handlePortalSignOut = useCallback(() => {
+    setSession(null);
+    setCurrentScreen("login");
+  }, []);
+
+  const handleProfileSaved = useCallback((fullName: string) => {
+    setSession((prev) =>
+      prev ? { ...prev, account: { ...prev.account, fullName } } : prev
+    );
+  }, []);
 
   const handleShowRegistration = () => {
     setCurrentScreen("registration-selection");
@@ -102,6 +126,38 @@ export default function App() {
         onShowRegistration={handleShowRegistration}
         onShowAdminLogin={handleShowAdminLogin}
       />
+    );
+  }
+
+  if (currentScreen === "portal") {
+    if (!session) {
+      return (
+        <KaveeshaDmcLoginScreen
+          onLogin={handleLogin}
+          onShowRegistration={handleShowRegistration}
+          onShowAdminLogin={handleShowAdminLogin}
+        />
+      );
+    }
+
+    return (
+      <PortalLayout
+        account={session.account}
+        activePage={portalPage}
+        onNavigate={setPortalPage}
+        onSignOut={handlePortalSignOut}
+      >
+        {portalPage === "dashboard" ? (
+          <DashboardPage account={session.account} />
+        ) : (
+          <ProfilePage
+            token={session.token}
+            account={session.account}
+            onProfileSaved={handleProfileSaved}
+            onSessionExpired={handlePortalSignOut}
+          />
+        )}
+      </PortalLayout>
     );
   }
 

@@ -14,7 +14,7 @@ import {
 import { Colors } from "../constants/theme";
 
 interface DmcLoginScreenProps {
-  onLogin: () => void;
+  onLogin: (email: string, password: string) => Promise<void>;
   onShowRegistration?: () => void;
   onShowAdminLogin?: () => void;
 }
@@ -29,8 +29,9 @@ export default function KaveeshaDmcLoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
 
@@ -39,7 +40,18 @@ export default function KaveeshaDmcLoginScreen({
       return;
     }
 
-    onLogin();
+    setSubmitting(true);
+    try {
+      await onLogin(email.trim(), password);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to sign in. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -222,8 +234,12 @@ export default function KaveeshaDmcLoginScreen({
               </div>
             )}
 
-            <button type="submit" className="dmc-submit-button">
-              Sign in to DMC Portal
+            <button
+              type="submit"
+              className="dmc-submit-button"
+              disabled={submitting}
+            >
+              {submitting ? "Signing in..." : "Sign in to DMC Portal"}
             </button>
 
             {onShowRegistration && (
@@ -652,6 +668,11 @@ export default function KaveeshaDmcLoginScreen({
             box-shadow: 0 14px 30px ${Colors.red}35;
           }
 
+          .dmc-submit-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+          }
+
           .dmc-security-notice {
             display: flex;
             gap: 10px;
@@ -907,4 +928,3 @@ export default function KaveeshaDmcLoginScreen({
     </div>
   );
 }
-
