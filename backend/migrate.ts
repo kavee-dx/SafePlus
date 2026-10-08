@@ -34,7 +34,8 @@ async function migrate() {
       "users_alert_targets.sql",
       "alert_sms_messages.sql",
       "amasha-super_admins.sql",
-      "amasha-users_verification_columns.sql"
+      "amasha-users_verification_columns.sql",
+      "amasha-hazard_report_uc02.sql"
     ];
 
     for (const file of migrationFiles) {

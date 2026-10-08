@@ -7,7 +7,9 @@ import { errorHandler, notFoundHandler } from "./middlewares/errorHandler";
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Evidence photos/videos are posted inline as data URLs (UC-02), so the JSON
+// body limit is raised well above the 100kb default.
+app.use(express.json({ limit: "15mb" }));
 
 app.use("/api", apiRoutes);
 

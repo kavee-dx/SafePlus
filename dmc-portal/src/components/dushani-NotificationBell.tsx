@@ -7,7 +7,11 @@ import type { PortalNotification } from "../types/hazardReport";
 
 const POLL_INTERVAL_MS = 20_000;
 
-export default function NotificationBell() {
+export default function NotificationBell({
+  onOpenReports,
+}: {
+  onOpenReports?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<PortalNotification[]>([]);
   const [unread, setUnread] = useState(0);
@@ -64,17 +68,24 @@ export default function NotificationBell() {
   }, [open]);
 
   const handleRead = async (notification: PortalNotification) => {
-    if (notification.isRead) {
-      return;
+    if (!notification.isRead) {
+      await markNotificationRead(notification.id);
+      setItems((current) =>
+        current.map((item) =>
+          item.id === notification.id ? { ...item, isRead: true } : item
+        )
+      );
+      setUnread((current) => Math.max(0, current - 1));
     }
 
-    await markNotificationRead(notification.id);
-    setItems((current) =>
-      current.map((item) =>
-        item.id === notification.id ? { ...item, isRead: true } : item
-      )
-    );
-    setUnread((current) => Math.max(0, current - 1));
+    if (
+      notification.type === "REPORT_SUBMITTED" ||
+      notification.type === "REPORT_VERIFIED" ||
+      notification.type === "REPORT_REJECTED"
+    ) {
+      setOpen(false);
+      onOpenReports?.();
+    }
   };
 
   return (

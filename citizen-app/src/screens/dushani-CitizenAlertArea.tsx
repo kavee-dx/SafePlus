@@ -12,8 +12,9 @@ import {
 import type { LoginAccount } from "../services/dildhara-authApi";
 import HomeScreen from "./dildhara-HomeScreen";
 import AlertInboxScreen from "./dushani-AlertInboxScreen";
-import MyReportsScreen from "./dushani-MyReportsScreen";
-import ReportHazardScreen from "./dushani-ReportHazardScreen";
+import MyReportsScreen from "./amasha-MyReportsScreen";
+import ReportHazardScreen from "./amasha-ReportHazardScreen";
+import { syncOfflineReports } from "../services/amasha-offlineReports";
 
 type Overlay = "none" | "report" | "mine" | "alerts";
 
@@ -33,6 +34,7 @@ export default function CitizenAlertArea({
 }: CitizenAlertAreaProps) {
   const insets = useSafeAreaInsets();
   const [overlay, setOverlay] = useState<Overlay>("none");
+  const [updateReportId, setUpdateReportId] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [pollToken, setPollToken] = useState(0);
 
@@ -75,6 +77,10 @@ export default function CitizenAlertArea({
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    void syncOfflineReports(token, account.id).catch(() => undefined);
+  }, [token, account.id, pollToken]);
+
   if (overlay === "alerts") {
     return (
       <AlertInboxScreen
@@ -91,8 +97,16 @@ export default function CitizenAlertArea({
     return (
       <ReportHazardScreen
         token={token}
-        onBack={() => setOverlay("none")}
-        onViewReports={() => setOverlay("mine")}
+        userKey={account.id}
+        updateReportId={updateReportId}
+        onBack={() => {
+          setUpdateReportId(null);
+          setOverlay("none");
+        }}
+        onViewReports={() => {
+          setUpdateReportId(null);
+          setOverlay("mine");
+        }}
       />
     );
   }
@@ -101,8 +115,16 @@ export default function CitizenAlertArea({
     return (
       <MyReportsScreen
         token={token}
+        userKey={account.id}
         onBack={() => setOverlay("none")}
-        onNewReport={() => setOverlay("report")}
+        onNewReport={() => {
+          setUpdateReportId(null);
+          setOverlay("report");
+        }}
+        onUpdateReport={(id) => {
+          setUpdateReportId(id);
+          setOverlay("report");
+        }}
       />
     );
   }
