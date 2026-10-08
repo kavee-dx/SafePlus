@@ -10,6 +10,7 @@ import {
   type RegistrationTypeDefinition,
 } from "../models/registration";
 import { validatePayload } from "../validators/registrationValidators";
+import { findVerifiedOrganizationByRegistrationId } from "./kaveesha-rescueTeamService";
 import {
   insertDeliveryVolunteer,
   insertDeliveryVolunteerTeam,
@@ -17,6 +18,8 @@ import {
   insertDistrictOfficer,
   insertOrganizationAdmin,
   insertReliefAgency,
+  insertRescueOrganization,
+  insertRescueTeam,
   insertTeamLeader,
   insertUser,
   withTransaction,
@@ -68,6 +71,32 @@ export async function registerAccount(
     );
   }
 
+  // An organization team may only attach itself to an organization a Super Admin
+  // has already verified, so the chosen registration ID is confirmed here and the
+  // stored name is taken from the verified record rather than the request.
+  if (
+    definition.toRescueTeam &&
+    definition.verifiedBy === "ORGANIZATION_ADMIN"
+  ) {
+    const organization = await findVerifiedOrganizationByRegistrationId(
+      payload.organizationRegistrationNumber ?? ""
+    );
+
+    if (!organization) {
+      throw new ApiError(
+        400,
+        "Choose an organization that has already been verified.",
+        {
+          organizationRegistrationNumber:
+            "Only verified organizations can be selected.",
+        }
+      );
+    }
+
+    payload.organizationName = organization.name;
+    payload.organizationRegistrationNumber = organization.registrationId;
+  }
+
   const passwordHash = await bcrypt.hash(payload.password, BCRYPT_ROUNDS);
   const userId = randomUUID();
   const user = { id: userId, ...definition.toUser(payload, passwordHash) };
@@ -100,8 +129,19 @@ export async function registerAccount(
       );
     }
 
+    if (definition.toRescueOrganization) {
+      await insertRescueOrganization(
+        client,
+        definition.toRescueOrganization(userId, payload)
+      );
+    }
+
     if (definition.toTeamLeader) {
       await insertTeamLeader(client, definition.toTeamLeader(userId, payload));
+    }
+
+    if (definition.toRescueTeam) {
+      await insertRescueTeam(client, definition.toRescueTeam(userId, payload));
     }
 
     if (definition.toDistrictOfficer) {

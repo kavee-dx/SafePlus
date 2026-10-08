@@ -15,6 +15,7 @@ export type ReviewableRole =
   | "COORDINATOR"
   | "RELIEF_AGENCY"
   | "ORGANIZATION_ADMIN"
+  | "RESCUE_ORGANIZATION_ADMIN"
   | "INDEPENDENT_TEAM_LEADER";
 
 export interface ProfileField {

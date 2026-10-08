@@ -139,6 +139,15 @@ export function optional(label: string, min = 2): Validator {
   };
 }
 
+export const optionalUsername: Validator = (value) => {
+  const v = trimmed(value);
+  if (!v) return null;
+  if (!USERNAME_REGEX.test(v)) {
+    return "Username must be 3-20 letters, numbers, dots, underscores or hyphens.";
+  }
+  return null;
+};
+
 export const optionalNic: Validator = (value) => {
   const v = trimmed(value);
   if (!v) return null;
