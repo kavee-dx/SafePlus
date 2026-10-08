@@ -1,73 +1,36 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
+import { AlertApiError } from "./dushani-alertApi";
 import {
-  AlertApiError,
   submitDetailedReport,
   type DetailedReportPayload,
 } from "./amasha-reportApi";
+import { isNetworkAvailable } from "./amasha-network";
+import {
+  deleteSecureDraft,
+  insertSecureDraft,
+  listSecureDrafts,
+  PENDING_SYNCHRONIZATION,
+  type OfflineDraft,
+} from "./amasha-secureReportStore";
 
-const STORAGE_PREFIX = "amasha-pending-reports:";
-
-export interface OfflineDraft {
-  id: string;
-  payload: DetailedReportPayload;
-  savedAt: string;
-  status: "PENDING_SYNCHRONIZATION";
-}
-
-function storageKey(userKey: string): string {
-  return `${STORAGE_PREFIX}${userKey}`;
-}
-
-async function readAll(userKey: string): Promise<OfflineDraft[]> {
-  const raw = await AsyncStorage.getItem(storageKey(userKey));
-
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as OfflineDraft[];
-
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeAll(userKey: string, drafts: OfflineDraft[]): Promise<void> {
-  await AsyncStorage.setItem(storageKey(userKey), JSON.stringify(drafts));
-}
+export type { OfflineDraft };
+export { PENDING_SYNCHRONIZATION };
 
 export async function listOfflineReports(userKey: string): Promise<OfflineDraft[]> {
-  return readAll(userKey);
+  return listSecureDrafts(userKey);
 }
 
 export async function saveOfflineReport(
   userKey: string,
   payload: DetailedReportPayload
 ): Promise<OfflineDraft> {
-  const draft: OfflineDraft = {
-    id: `OFFLINE-${Date.now().toString(36).toUpperCase()}`,
-    payload,
-    savedAt: new Date().toISOString(),
-    status: "PENDING_SYNCHRONIZATION",
-  };
-
-  const existing = await readAll(userKey);
-
-  await writeAll(userKey, [draft, ...existing]);
-
-  return draft;
+  return insertSecureDraft(userKey, payload);
 }
 
 export async function removeOfflineReport(
   userKey: string,
   id: string
 ): Promise<void> {
-  const remaining = (await readAll(userKey)).filter((item) => item.id !== id);
-
-  await writeAll(userKey, remaining);
+  await deleteSecureDraft(userKey, id);
 }
 
 export interface SyncResult {
@@ -81,27 +44,43 @@ export async function syncOfflineReports(
   token: string,
   userKey: string
 ): Promise<SyncResult> {
-  const drafts = await readAll(userKey);
+  const drafts = await listSecureDrafts(userKey);
+
+  if (drafts.length === 0) {
+    return { sent: 0, remaining: 0 };
+  }
+
+  if (!(await isNetworkAvailable())) {
+    return {
+      sent: 0,
+      remaining: drafts.length,
+      lastError: "Network is still unavailable. Reports stay Pending Synchronization.",
+    };
+  }
+
   let sent = 0;
   let lastError: string | undefined;
-  const leftover: OfflineDraft[] = [];
 
   for (const draft of drafts) {
     try {
       await submitDetailedReport(token, draft.payload);
+      await deleteSecureDraft(userKey, draft.id);
       sent += 1;
     } catch (error) {
-      leftover.push(draft);
       lastError =
         error instanceof AlertApiError
           ? error.message
           : "A saved report could not be sent.";
+
+      if (isUnreachable(error)) {
+        break;
+      }
     }
   }
 
-  await writeAll(userKey, leftover);
+  const remaining = (await listSecureDrafts(userKey)).length;
 
-  return { sent, remaining: leftover.length, lastError };
+  return { sent, remaining, lastError };
 }
 
 export function isUnreachable(error: unknown): boolean {

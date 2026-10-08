@@ -15,7 +15,7 @@ import HomeScreen from "./dildhara-HomeScreen";
 import AlertInboxScreen from "./dushani-AlertInboxScreen";
 import MyReportsScreen from "./amasha-MyReportsScreen";
 import ReportHazardScreen from "./amasha-ReportHazardScreen";
-import { syncOfflineReports } from "../services/amasha-offlineReports";
+import { startOfflineSync } from "../services/amasha-offlineSync";
 
 type Overlay = "none" | "report" | "mine" | "alerts";
 
@@ -79,8 +79,8 @@ export default function CitizenAlertArea({
   }, []);
 
   useEffect(() => {
-    void syncOfflineReports(token, account.id).catch(() => undefined);
-  }, [token, account.id, pollToken]);
+    return startOfflineSync(token, account.id);
+  }, [token, account.id]);
 
   if (overlay === "alerts") {
     return (
