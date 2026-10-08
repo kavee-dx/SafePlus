@@ -249,8 +249,10 @@ function parseDetailed(
     errors
   );
 
-  if (locationLat === undefined || locationLng === undefined) {
-    errors.locationLat = "Location is required. Capture GPS or enter coordinates.";
+  // E2: GPS may be unavailable. District is required; coordinates are preferred
+  // but a half-pair is invalid. Either both or neither.
+  if ((locationLat === undefined) !== (locationLng === undefined)) {
+    errors.locationLat = "Report both a latitude and a longitude, or neither.";
     errors.locationLng = errors.locationLat;
   }
 

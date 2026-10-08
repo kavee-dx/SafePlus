@@ -10,6 +10,7 @@ import {
   saveAlertTarget,
 } from "../services/dushani-alertApi";
 import type { LoginAccount } from "../services/dildhara-authApi";
+import { fetchMyProfile } from "../services/dildhara-profileApi";
 import HomeScreen from "./dildhara-HomeScreen";
 import AlertInboxScreen from "./dushani-AlertInboxScreen";
 import MyReportsScreen from "./amasha-MyReportsScreen";

@@ -185,11 +185,14 @@ export async function updateVerification(
   status: ReportStatus.VERIFIED | ReportStatus.REJECTED,
   verificationNotes?: string
 ): Promise<HazardReport | null> {
+  // $2 is used twice (assignment and comparison). Cast both uses to the same
+  // type, otherwise Postgres infers varchar for one and text for the other
+  // (error 42P08).
   const result = await pool.query(
     `UPDATE hazard_reports
-        SET status = $2,
+        SET status = $2::varchar,
             verified_by = $3,
-            verified_at = CASE WHEN $2 = 'VERIFIED' THEN NOW() ELSE NULL END,
+            verified_at = CASE WHEN $2::varchar = 'VERIFIED' THEN NOW() ELSE NULL END,
             verification_notes = $4,
             updated_at = NOW()
       WHERE id = $1

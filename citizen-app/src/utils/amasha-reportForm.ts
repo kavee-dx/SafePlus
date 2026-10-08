@@ -190,8 +190,12 @@ export function validateStep(step: ReportStep, draft: ReportDraft): FieldErrors 
       errors.locationDistrict = "Choose the district this is happening in.";
     }
 
-    if (draft.latitude === undefined || draft.longitude === undefined) {
-      errors.locationLat = "Capture GPS or enter coordinates for the incident.";
+    const hasLat = draft.latitude !== undefined;
+    const hasLng = draft.longitude !== undefined;
+
+    if (hasLat !== hasLng) {
+      errors.locationLat = "Enter both latitude and longitude, or leave both blank.";
+      errors.locationLng = errors.locationLat;
     }
   }
 

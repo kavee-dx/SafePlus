@@ -5,6 +5,7 @@ import { findVerificationRecipients } from "../repositories/dushani-hazardReport
 import {
   createDetailedReport,
   findDetailById,
+  findDetailByPublicId,
   insertReportNotifications,
   listExtended,
   listExtendedByReporter,
@@ -60,7 +61,7 @@ export class ReportExtensionService {
   }
 
   async detailForOfficer(id: string): Promise<ExtendedHazardReport> {
-    const report = await findDetailById(id);
+    const report = await this.lookup(id);
 
     if (!report) {
       throw new ApiError(404, "Hazard report not found.");
@@ -70,13 +71,17 @@ export class ReportExtensionService {
   }
 
   async detailForReporter(id: string, reporterId: string): Promise<ExtendedHazardReport> {
-    const report = await findDetailById(id);
+    const report = await this.lookup(id);
 
     if (!report || report.reporterId !== reporterId) {
       throw new ApiError(404, "Hazard report not found.");
     }
 
     return report;
+  }
+
+  private async lookup(id: string): Promise<ExtendedHazardReport | null> {
+    return (await findDetailById(id)) ?? (await findDetailByPublicId(id));
   }
 
   /** A2: officer asks the citizen for more; report leaves the pending queue. */
