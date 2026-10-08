@@ -12,6 +12,7 @@ import geoRoutes from "./dushani-geoRoutes";
 import pinRoutes from "./dushani-pinRoutes";
 import alertTargetRoutes from "./dushani-alertTargetRoutes";
 import alertInboxRoutes from "./dushani-alertInboxRoutes";
+import resourceRoutes from "./dildhara-resourceRoutes";
 
 const router = Router();
 
@@ -33,5 +34,6 @@ router.use("/geo", geoRoutes);
 router.use("/clearance-pin", pinRoutes);
 router.use("/alert-target", alertTargetRoutes);
 router.use("/alert-inbox", alertInboxRoutes);
+router.use("/resources", resourceRoutes);
 
 export default router;
