@@ -8,6 +8,7 @@ import {
   Loader2,
   MapPin,
   Navigation,
+  Radio,
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
@@ -20,6 +21,7 @@ import {
   DispatchApiError,
   acceptIncident,
   fetchIncidents,
+  openDispatchStream,
 } from "../services/kaveesha-dispatchApi";
 import { DESK_CSS, DISPATCH_CSS } from "../styles/kaveesha-dispatchStyles";
 import {
@@ -44,14 +46,26 @@ import {
  * happens on that page, so nothing is shown twice.
  * ------------------------------------------------------------------ */
 
-type DeskStage = "needs_acceptance" | "awaiting_team" | "working" | "closed";
+/**
+ * The five things a verified incident can be on this desk. The last two are
+ * different: every team coming back is not the same as the district finishing
+ * with the incident, and conflating them is how a control room loses track of
+ * who still owns the job.
+ */
+type DeskStage =
+  | "needs_acceptance"
+  | "awaiting_team"
+  | "working"
+  | "wrapped"
+  | "closed";
 type Filter = "all" | DeskStage;
 
 const STAGE_META: Record<DeskStage, { label: string; color: string }> = {
   needs_acceptance: { label: "Needs your yes", color: Colors.amber },
   awaiting_team: { label: "Taken on, no team", color: Colors.blue },
   working: { label: "Team in the field", color: Colors.red },
-  closed: { label: "Missions closed", color: Colors.muted },
+  wrapped: { label: "Teams back · not closed", color: Colors.blueDark },
+  closed: { label: "Closed", color: Colors.success },
 };
 
 const FILTERS: { key: Filter; label: string; hint: string }[] = [
@@ -59,7 +73,8 @@ const FILTERS: { key: Filter; label: string; hint: string }[] = [
   { key: "needs_acceptance", label: "Needs your yes", hint: "Verified, and nobody has taken them on." },
   { key: "awaiting_team", label: "No team yet", hint: "Taken on and still waiting for a tasking." },
   { key: "working", label: "On mission", hint: "Teams out there for you right now." },
-  { key: "closed", label: "Closed", hint: "Every mission sent to them has ended." },
+  { key: "wrapped", label: "Teams back", hint: "Every mission ended, and the incident is still open." },
+  { key: "closed", label: "Closed", hint: "The district has finished with them." },
 ];
 
 const FILTER_ICONS: Record<Filter, typeof Inbox> = {
@@ -67,13 +82,15 @@ const FILTER_ICONS: Record<Filter, typeof Inbox> = {
   needs_acceptance: ShieldCheck,
   awaiting_team: Users,
   working: Navigation,
+  wrapped: Clock,
   closed: CheckCircle2,
 };
 
 function stageOf(incident: IncidentSummary): DeskStage {
+  if (incident.resolvedAt) return "closed";
   if (!incident.acceptedAt) return "needs_acceptance";
   if (incident.liveDispatchCount > 0) return "working";
-  if (incident.dispatchCount > 0) return "closed";
+  if (incident.dispatchCount > 0) return "wrapped";
 
   return "awaiting_team";
 }
@@ -82,7 +99,8 @@ const STAGE_RANK: Record<DeskStage, number> = {
   needs_acceptance: 0,
   working: 1,
   awaiting_team: 2,
-  closed: 3,
+  wrapped: 3,
+  closed: 4,
 };
 
 const SEVERITY_RANK: Record<string, number> = {
@@ -161,6 +179,11 @@ export default function KaveeshaIncidentDesk({
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  /* The live feed's last line, and whether it is currently held open. The board
+     shows both so an officer never has to wonder whether what they are reading
+     is current or twenty seconds old. */
+  const [liveFeed, setLiveFeed] = useState<string | null>(null);
+  const [streamUp, setStreamUp] = useState(false);
 
   const loading = !ready;
 
@@ -191,11 +214,45 @@ export default function KaveeshaIncidentDesk({
     };
   }, [token, district, tick]);
 
+  /* The district's live feed: a team leader tapping a stage on their phone
+     arrives here in about a second, which is the point of the whole feature —
+     the control room watches the mission move instead of asking over the radio. */
+  useEffect(() => {
+    if (!district) return;
+
+    const handle = openDispatchStream({
+      token,
+      onEvent: (event) => {
+        if (event.kind === "hello") return;
+
+        setLiveFeed(event.message ?? "Something on the district moved.");
+        setTick((value) => value + 1);
+      },
+      // "connecting" fires inside the effect's own synchronous path, so it is
+      // ignored: the pill only ever flips from the settled states.
+      onState: (state) => {
+        if (state === "connecting") return;
+
+        setStreamUp(state === "live");
+      },
+    });
+
+    return () => handle.close();
+  }, [token, district]);
+
   // Ageing clocks should keep moving without the officer touching anything.
   useEffect(() => {
     const beat = window.setInterval(() => setNow(Date.now()), 60000);
 
     return () => window.clearInterval(beat);
+  }, []);
+
+  /* A slow safety net under the live feed. If the stream drops and the retry is
+     still on its way back, the desk is never more than a minute behind reality. */
+  useEffect(() => {
+    const net = window.setInterval(() => setTick((value) => value + 1), 60000);
+
+    return () => window.clearInterval(net);
   }, []);
 
   const refresh = () => {
@@ -209,6 +266,7 @@ export default function KaveeshaIncidentDesk({
       needs_acceptance: 0,
       awaiting_team: 0,
       working: 0,
+      wrapped: 0,
       closed: 0,
     };
 
@@ -292,6 +350,17 @@ export default function KaveeshaIncidentDesk({
         </div>
 
         <div className="kqd-head-stats">
+          <span
+            className={`kqd-live ${streamUp ? "kqd-live-on" : ""}`}
+            title={
+              streamUp
+                ? "Connected to the district's live feed. A stage the leader taps on their phone appears here at once."
+                : "The live feed is reconnecting. The list still refreshes once a minute."
+            }
+          >
+            <Radio size={11} />
+            {streamUp ? "Live" : "Refreshing"}
+          </span>
           <span className="kqd-stat">
             <strong>{incidents.length}</strong>
             <span>on the desk</span>
@@ -310,6 +379,22 @@ export default function KaveeshaIncidentDesk({
           </span>
         </div>
       </div>
+
+      {/* What just happened, said out loud. A board that updates silently makes
+          an officer doubt it; one line of proof is worth more than a spinner. */}
+      {liveFeed && (
+        <div className="kqd-flash">
+          <Radio size={13} />
+          <span>{liveFeed}</span>
+          <button
+            type="button"
+            className="kdx-btn kdx-btn-sm"
+            onClick={() => setLiveFeed(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="kdx-error">
@@ -421,9 +506,11 @@ export default function KaveeshaIncidentDesk({
                           ? "Nothing accepted is sitting without a team."
                           : filter === "working"
                             ? "No rescue team is in the field on your incidents right now."
-                            : filter === "closed"
-                              ? "No closed missions yet."
-                              : "No verified incident has reached your district. Citizen reports are verified by the DMC officer first."}
+                            : filter === "wrapped"
+                              ? "Nothing is waiting to be closed. Every incident with a team out is still running."
+                              : filter === "closed"
+                                ? "You have not closed an incident yet. Open one and shut it once its teams are back."
+                                : "No verified incident has reached your district. Citizen reports are verified by the DMC officer first."}
                   </span>
                 </div>
               ) : (
@@ -474,15 +561,17 @@ function DeskCard({
 }) {
   const stage = stageOf(incident);
   const meta = STAGE_META[stage];
+  const closed = stage === "closed";
+  const wrapped = stage === "wrapped";
   const point =
     typeof incident.locationLat === "number" &&
     typeof incident.locationLng === "number" &&
     Number.isFinite(incident.locationLat) &&
     Number.isFinite(incident.locationLng);
-  const stale = stage !== "closed" && isStale(incident, now);
+  const stale = !closed && isStale(incident, now);
 
   return (
-    <article className={`kqd-card ${stale ? "kqd-card-stale" : ""}`}>
+    <article className={`kqd-card ${stale ? "kqd-card-stale" : ""} ${closed ? "kqd-card-closed" : ""}`}>
       <span className="kqd-rail" style={{ background: severityColor(incident.severityLevel) }} />
 
       {/* Clicking the incident itself is what opens it, exactly as an officer
@@ -492,7 +581,13 @@ function DeskCard({
         type="button"
         className="kqd-open"
         onClick={onOpen}
-        title={`Open ${incident.reportId} to task a team`}
+        title={
+          closed
+            ? `Read ${incident.reportId} — it is closed, and still auditable`
+            : wrapped
+              ? `Open ${incident.reportId} to review the missions and close the incident`
+              : `Open ${incident.reportId} to task a team`
+        }
       >
         <span className={`kqd-shot ${incident.liveDispatchCount > 0 ? "kqd-shot-live" : ""}`}>
           {incident.thumbnailUrl ? (
@@ -568,6 +663,20 @@ function DeskCard({
                 {incident.acceptedByName}
               </span>
             )}
+            {/* The two states that only exist because the district can close a
+                job: what came of it, and what is waiting on that closure. */}
+            {closed && (
+              <span className="kdx-chip kdx-chip-good">
+                <CheckCircle2 size={10} />
+                {incident.totalRescued} rescued · {incident.totalEvacuated} evacuated
+              </span>
+            )}
+            {wrapped && (
+              <span className="kdx-chip kdx-chip-warn">
+                <Clock size={10} />
+                all teams back — can be closed
+              </span>
+            )}
           </div>
         </div>
       </button>
@@ -575,7 +684,9 @@ function DeskCard({
       <div className="kqd-side">
         <span className={`kqd-age ${stale ? "kqd-age-hot" : ""}`}>
           <Clock size={11} />
-          {waitingSince(incident, now)}
+          {closed
+            ? `closed ${relativeTime(incident.resolvedAt)}`
+            : waitingSince(incident, now)}
         </span>
 
         {stage === "needs_acceptance" && (

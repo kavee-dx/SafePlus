@@ -593,6 +593,20 @@ export const DISPATCH_CSS = `
     color: ${Colors.white};
   }
 
+  /* Closing an incident is a deliberate, calm act — not the green of "go" and
+     not the red of "danger" — so it borrows the settled navy of finished work. */
+  .kdx-btn-close {
+    background: ${Colors.navy};
+    border-color: ${Colors.navy};
+    color: ${Colors.white};
+  }
+
+  .kdx-btn-close:hover:not(:disabled) {
+    background: ${Colors.navyLight};
+    border-color: ${Colors.navyLight};
+    color: ${Colors.white};
+  }
+
   .kdx-btn-danger {
     background: ${Colors.white};
     border-color: ${Colors.red};
@@ -661,6 +675,10 @@ export const DISPATCH_CSS = `
     border-radius: 20px;
     background: ${Colors.white};
     box-shadow: 0 32px 80px rgba(11, 31, 51, 0.4);
+  }
+
+  .kdx-modal-wide {
+    width: min(900px, 100%);
   }
 
   .kdx-modal-head {
@@ -1240,6 +1258,72 @@ export const DESK_CSS = `
     .kqd-side { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; }
     .kqd-stage { margin-left: 0; }
   }
+
+  /* --- the live feed ------------------------------------------------------ *
+     An officer who cannot tell whether the board is current stops trusting it,
+     so the connection state is a pill in the header rather than a footnote. */
+
+  .kqd-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    align-self: center;
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1px solid ${Colors.border};
+    background: ${Colors.background};
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: ${Colors.muted};
+    white-space: nowrap;
+  }
+
+  .kqd-live-on {
+    border-color: ${Colors.success};
+    background: ${Colors.success}14;
+    color: #0B7A48;
+  }
+
+  .kqd-live-on svg { animation: kdx-pulse 1.9s ease-in-out infinite; }
+
+  /* The one line that says what just moved. It appears, proves the board is
+     alive, and gets out of the way as soon as it is dismissed. */
+  .kqd-flash {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 13px;
+    border: 1px solid ${Colors.blue}55;
+    border-left: 3px solid ${Colors.blue};
+    border-radius: 12px;
+    background: ${Colors.blueLight}66;
+    font-size: 13px;
+    font-weight: 600;
+    color: ${Colors.navy};
+    animation: kqd-flash-in 260ms ease;
+  }
+
+  .kqd-flash > svg { color: ${Colors.blue}; flex: 0 0 auto; }
+
+  .kqd-flash > span { flex: 1; min-width: 0; }
+
+  .kqd-flash button { flex: 0 0 auto; }
+
+@keyframes kqd-flash-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* A closed incident is finished work, not noise: it is dimmed and sits at the
+     bottom of the list so the live stuff keeps the visual weight. */
+  .kqd-card-closed {
+    background: #FAFBFC;
+    border-style: dashed;
+    opacity: 0.86;
+  }
+
+  .kqd-card-closed:hover { opacity: 1; box-shadow: none; transform: none; }
 `;
 
 /* ================================================================== *
@@ -1343,6 +1427,76 @@ export const RESPONSE_CSS = `
   @keyframes kyp-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
+  }
+
+  /* A closed incident announces itself in the bar, so an officer scrolling back
+     up never mistakes finished work for something still running. */
+  .kyp-bar-closed {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid rgba(18, 183, 106, 0.45);
+    border-radius: 999px;
+    background: rgba(18, 183, 106, 0.1);
+    color: #0E8A51;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  /* The connection pill is deliberately quieter than the mission pill — it is
+     about how fresh the page is, not about who is in the field. */
+  .kyp-stream {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border: 1px solid ${Colors.border};
+    border-radius: 999px;
+    background: ${Colors.white};
+    color: ${Colors.muted};
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .kyp-stream-on {
+    border-color: ${Colors.blue};
+    background: ${Colors.blueLight}59;
+    color: ${Colors.blueDark};
+  }
+
+  .kyp-stream-on svg { animation: kyp-pulse 1.9s ease-in-out infinite; }
+
+  /* The live sentence. It slides in, proves the feed is alive, and steps aside
+     the moment it is dismissed. */
+  .kyp-flash {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 13px;
+    border: 1px solid ${Colors.blue}55;
+    border-left: 3px solid ${Colors.blue};
+    border-radius: 12px;
+    background: ${Colors.blueLight}66;
+    font-size: 13px;
+    font-weight: 600;
+    color: ${Colors.navy};
+    animation: kyp-flash-in 260ms ease;
+  }
+
+  .kyp-flash > svg { color: ${Colors.blue}; flex: 0 0 auto; }
+
+  .kyp-flash > span { flex: 1; min-width: 0; }
+
+  .kyp-flash button { flex: 0 0 auto; }
+
+  @keyframes kyp-flash-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   /* --- 1. the incident ---------------------------------------------------- */
@@ -1511,6 +1665,76 @@ export const RESPONSE_CSS = `
     font-style: italic;
     font-weight: 600;
   }
+
+  /* --- the closing line --------------------------------------------------- *
+     A finished incident reads as finished: a calm green record card with its
+     numbers and the one undo. The action to close is quieter still — navy, and
+     it only appears once every team is back. */
+
+  .kyp-closed {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+    padding: 13px 14px;
+    border: 1px solid rgba(18, 183, 106, 0.4);
+    border-radius: 14px;
+    background: rgba(18, 183, 106, 0.07);
+  }
+
+  .kyp-closed-lead {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    flex: 1;
+    min-width: 220px;
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: #0E8A51;
+  }
+
+  .kyp-closed-lead svg { flex: 0 0 auto; margin-top: 2px; }
+
+  .kyp-closed-note {
+    display: block;
+    margin-top: 3px;
+    color: ${Colors.navy};
+    font-style: italic;
+    font-weight: 600;
+  }
+
+  .kyp-close {
+    margin-top: 15px;
+    padding: 13px 14px;
+    border: 1px solid ${Colors.border};
+    border-radius: 14px;
+    background: ${Colors.background};
+  }
+
+  .kyp-close-lead {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: ${Colors.navy};
+  }
+
+  .kyp-close-lead svg { flex: 0 0 auto; margin-top: 2px; color: ${Colors.muted}; }
+
+  .kyp-close-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+    margin-top: 11px;
+  }
+
+  .kyp-close-row .kdx-input { flex: 1; min-width: 220px; background: ${Colors.white}; }
+
+  .kyp-close > .kdx-btn-close { margin-top: 11px; }
 
   /* --- 2. the map --------------------------------------------------------- */
 

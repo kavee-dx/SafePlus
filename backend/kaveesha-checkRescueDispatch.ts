@@ -14,6 +14,11 @@ const SEED_PASSWORD = "SafePlus@2026";
 /** The one handover line this probe writes, so it can find and remove it again. */
 const PROBE_HANDOVER =
   "Second shift: the boat from the Mundal main office is still wanted.";
+/** The closure line the desk probe writes, and the stand-down reason it cancels with. */
+const PROBE_CLOSURE =
+  "Probe closure: the slip was cleared and both families are with relatives.";
+const PROBE_CANCEL =
+  "Probe stand-down: the road opened, the load went to the Divisional Secretariat.";
 
 let passed = 0;
 let failed = 0;
@@ -591,7 +596,214 @@ async function main() {
     console.log("  (no verified incident outside Colombo — that refusal was not probed)");
   }
 
-  console.log("\n10. the stage list comes from the server");
+  console.log("\n10. the district closes the incident it finished");
+  const closePath = `/rescue-dispatch/incidents/${incident.reportId}/close`;
+  const reopenPath = `/rescue-dispatch/incidents/${incident.reportId}/reopen`;
+
+  const closed = await call("POST", closePath, {
+    token: officerToken,
+    body: { note: PROBE_CLOSURE },
+  });
+
+  check(
+    "an incident with every team back can be closed",
+    closed.status === 200 && Boolean(closed.data?.incident?.resolvedAt),
+    `status ${closed.status}: ${closed.data?.message ?? ""}`
+  );
+  check(
+    "the closure says who shut it",
+    Boolean(closed.data?.incident?.resolvedByName),
+    `${closed.data?.incident?.resolvedByName ?? "nobody"}`
+  );
+  check(
+    "the roll-up counts what the completed mission reported",
+    typeof closed.data?.incident?.totalRescued === "number" &&
+      closed.data.incident.totalRescued >= 1,
+    `${closed.data?.incident?.totalRescued ?? "?"} rescued, ${
+      closed.data?.incident?.totalEvacuated ?? "?"
+    } evacuated`
+  );
+
+  const closedTwice = await call("POST", closePath, {
+    token: officerToken,
+    body: { note: PROBE_CLOSURE },
+  });
+
+  check(
+    "closing twice is refused rather than re-stamped",
+    closedTwice.status === 409,
+    `status ${closedTwice.status}: ${closedTwice.data?.message ?? ""}`
+  );
+
+  const reopened = await call("POST", reopenPath, { token: officerToken });
+
+  check(
+    "a mis-click can be undone",
+    reopened.status === 200 && !reopened.data?.incident?.resolvedAt,
+    `status ${reopened.status}: ${reopened.data?.message ?? ""}`
+  );
+  check(
+    "reopening discards the closing note too",
+    !reopened.data?.incident?.resolutionNote,
+    `${reopened.data?.incident?.resolutionNote ?? "(none)"}`
+  );
+
+  const closeUnclosed = await call("POST", closePath, { token: officerToken });
+
+  check(
+    "closing without a note is allowed once a team actually went",
+    closeUnclosed.status === 200,
+    `status ${closeUnclosed.status}: ${closeUnclosed.data?.message ?? ""}`
+  );
+
+  // Put the desk back the way the next section expects it: open, and still taken
+  // on by the district — a reopen clears the closure, never the acceptance.
+  await call("POST", reopenPath, { token: officerToken });
+
+  const otherDistrict = await pool.query(
+    `SELECT acc.report_id::text AS id
+       FROM district_incident_acceptance acc
+       JOIN hazard_reports r ON r.id = acc.report_id
+      WHERE r.location_district <> 'Colombo' AND acc.resolved_at IS NULL LIMIT 1`
+  );
+
+  if (otherDistrict.rows[0]) {
+    const intrusionClose = await call(
+      "POST",
+      `/rescue-dispatch/incidents/${otherDistrict.rows[0].id}/close`,
+      { token: officerToken, body: { note: PROBE_CLOSURE } }
+    );
+
+    check(
+      "another district's incident cannot be closed",
+      intrusionClose.status === 403,
+      `status ${intrusionClose.status}: ${intrusionClose.data?.message ?? ""}`
+    );
+  } else {
+    console.log("  (no accepted incident outside Colombo — that refusal was not probed)");
+  }
+
+  console.log("\n11. a leader's tap moves the officer's board without a poll");
+  const streamEvents: { kind?: string; status?: string; message?: string }[] = [];
+  const abort = new AbortController();
+  let helloSeen = false;
+
+  const streaming = fetch(`${BASE}/rescue-dispatch/stream`, {
+    headers: { Authorization: `Bearer ${officerToken}`, Accept: "text/event-stream" },
+    signal: abort.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok || !response.body) {
+        throw new Error(`stream refused with ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      for (;;) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        for (;;) {
+          const split = buffer.indexOf("\n\n");
+
+          if (split < 0) break;
+
+          const frame = buffer.slice(0, split).trim();
+          buffer = buffer.slice(split + 2);
+
+          const payload = frame.replace(/^data:\s*/, "");
+
+          if (!payload || payload.startsWith(":")) continue;
+
+          try {
+            const event = JSON.parse(payload);
+
+            if (event.kind === "hello") helloSeen = true;
+            else streamEvents.push(event);
+          } catch {
+            // A keep-alive comment is not JSON, and is not meant to be.
+          }
+        }
+      }
+    })
+    .catch((error: Error) => {
+      if (error.name !== "AbortError") {
+        check("the live stream opens", false, error.message);
+      }
+    });
+
+  // Give the connection a moment to establish before anything is worth moving.
+  for (let waited = 0; waited < 40 && !helloSeen; waited += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  check(
+    "the officer's board can subscribe to its own district",
+    helloSeen,
+    helloSeen ? "hello frame received" : "no hello frame within 2s"
+  );
+
+  // The team is free again after section 7 closed its mission, so the same
+  // leader login is still the right one to drive a stage with.
+  const streamed = await call(
+    "POST",
+    `/rescue-dispatch/incidents/${incident.reportId}/dispatch`,
+    {
+      token: officerToken,
+      body: {
+        teamId: target.teamId,
+        missionNotes: "Probe: tasked again only to prove the live feed moves.",
+      },
+    }
+  );
+  const streamedId = streamed.data?.dispatch?.id as string | undefined;
+
+  if (streamedId) {
+    await call("POST", `/rescue-dispatch/dispatches/${streamedId}/status`, {
+      token: leaderToken,
+      body: { status: "ACCEPTED" },
+    });
+    await call("POST", `/rescue-dispatch/dispatches/${streamedId}/cancel`, {
+      token: officerToken,
+      body: { reason: PROBE_CANCEL },
+    });
+  }
+
+  // The frames travel over an already-open connection, so a short settle is all
+  // the wait the assertion needs — no polling in the middle of a push test.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  abort.abort();
+  await streaming;
+
+  const sawTasking = streamEvents.some(
+    (event) => event.kind === "dispatch" && event.status === "DISPATCHED"
+  );
+  const sawStage = streamEvents.some(
+    (event) => event.kind === "dispatch" && event.status === "ACCEPTED"
+  );
+  const sawStandDown = streamEvents.some(
+    (event) => event.kind === "dispatch" && event.status === "CANCELLED"
+  );
+  const sawAcceptance = streamEvents.some(
+    (event) => event.kind === "incident" && event.message?.includes("taken on")
+  );
+
+  check("a tasking arrives on the stream", sawTasking, `${streamEvents.length} frame(s)`);
+  check("a leader's tap on a phone arrives on the stream", sawStage);
+  check("a stand-down arrives on the stream", sawStandDown);
+  // Section 9 accepted this incident, which was before the subscription opened:
+  // an event that predates the socket is legitimately missing, so this only
+  // reports what it saw.
+  console.log(
+    `  (incident acceptance event ${sawAcceptance ? "seen" : "not seen — published before the stream opened"})`
+  );
+
+  console.log("\n12. the stage list comes from the server");
   const stages = await call("GET", "/rescue-dispatch/stages", { token: officerToken });
 
   check(

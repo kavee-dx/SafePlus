@@ -74,6 +74,16 @@ const INCIDENT_SELECT = `
            WHERE d.report_id = r.id)::int AS dispatch_count,
          acc.accepted_at,
          acc.handover_note,
+         acc.resolved_at,
+         acc.resolution_note,
+         closer.full_name AS resolved_by_name,
+         -- What the district actually achieved, kept next to the incident so a
+         -- closed one can still answer "how many did we get out" without reading
+         -- every mission row again.
+         (SELECT COALESCE(SUM(d.people_rescued), 0) FROM rescue_dispatches d
+           WHERE d.report_id = r.id AND d.status = 'COMPLETED')::int AS total_rescued,
+         (SELECT COALESCE(SUM(d.people_evacuated), 0) FROM rescue_dispatches d
+           WHERE d.report_id = r.id AND d.status = 'COMPLETED')::int AS total_evacuated,
          acceptor.full_name AS accepted_by_name
     FROM hazard_reports r
     LEFT JOIN users reporter ON reporter.id = r.reporter_id
@@ -81,6 +91,7 @@ const INCIDENT_SELECT = `
     -- The district's own acceptance, written only by the incident desk below.
     LEFT JOIN district_incident_acceptance acc ON acc.report_id = r.id
     LEFT JOIN users acceptor ON acceptor.id = acc.accepted_by
+    LEFT JOIN users closer ON closer.id = acc.resolved_by
 `;
 
 function toIncident(row: Row): IncidentSummary {
@@ -108,6 +119,11 @@ function toIncident(row: Row): IncidentSummary {
     acceptedAt: row.accepted_at ? date(row.accepted_at) : undefined,
     acceptedByName: optionalText(row.accepted_by_name),
     handoverNote: optionalText(row.handover_note),
+    resolvedAt: row.resolved_at ? date(row.resolved_at) : undefined,
+    resolvedByName: optionalText(row.resolved_by_name),
+    resolutionNote: optionalText(row.resolution_note),
+    totalRescued: num(row.total_rescued) ?? 0,
+    totalEvacuated: num(row.total_evacuated) ?? 0,
   };
 }
 
@@ -122,7 +138,11 @@ export async function listVerifiedIncidents(
     sql += ` AND r.location_district = $${params.length}`;
   }
 
-  sql += " ORDER BY r.verified_at DESC NULLS LAST, r.created_at DESC LIMIT 100";
+  // A closed incident stays on the desk — an officer who asks "what did we do
+  // last week" must be able to see it — but it never sits above live work.
+  sql +=
+    " ORDER BY (acc.resolved_at IS NOT NULL), r.verified_at DESC NULLS LAST," +
+    " r.created_at DESC LIMIT 100";
 
   const result = await pool.query(sql, params);
 
@@ -891,4 +911,94 @@ export async function findLiveDispatchForTeam(
   );
 
   return result.rows[0] ? toDispatch(result.rows[0]) : null;
+}
+
+/**
+ * Who to ring on the phone of the leader who owns this team.
+ *
+ * The token is read here rather than passed in from the request, because a
+ * client must never be able to aim a notification at somebody else's handset.
+ * The column itself was added by UC-01 and the citizen app already registers it
+ * on sign-in, so this only reads what that flow writes.
+ */
+export async function findLeaderPushTarget(
+  teamId: string
+): Promise<{
+  userId: string;
+  fullName: string;
+  phone: string | null;
+  deviceToken: string | null;
+} | null> {
+  const result = await pool.query(
+    `SELECT u.id AS user_id, u.full_name, u.phone_number, u.device_token
+       FROM team_leaders t
+       JOIN users u ON u.id = t.user_id
+      WHERE t.id = $1::uuid LIMIT 1`,
+    [teamId]
+  );
+  const row = result.rows[0];
+
+  return row
+    ? {
+        userId: text(row.user_id),
+        fullName: text(row.full_name),
+        phone: optionalText(row.phone_number) ?? null,
+        deviceToken: optionalText(row.device_token) ?? null,
+      }
+    : null;
+}
+
+/**
+ * Drop a token the gateway says is dead. Expo answers "DeviceNotRegistered" once
+ * a handset is wiped or the app is reinstalled without signing in again, and
+ * leaving a stale token behind means every future tasking is silently lost.
+ */
+export async function clearLeaderPushToken(userId: string): Promise<void> {
+  await pool.query(
+    "UPDATE users SET device_token = NULL WHERE id = $1::uuid",
+    [userId]
+  );
+}
+
+/**
+ * The district closes the incident. Refused when no team has ever been tasked:
+ * an incident that was taken on and then worked by nobody is a decision worth
+ * seeing on the desk, not a line to erase.
+ *
+ * Returns false when the row was already closed, which is how the service tells
+ * a double click apart from a real second closure.
+ */
+export async function recordClosure(
+  reportId: string,
+  officerUserId: string,
+  resolutionNote?: string
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE district_incident_acceptance
+        SET resolved_at = NOW(),
+            resolved_by = $2::uuid,
+            resolution_note = COALESCE($3::text, resolution_note),
+            updated_at = NOW()
+      WHERE report_id = $1::uuid AND resolved_at IS NULL
+      RETURNING report_id`,
+    [reportId, officerUserId, resolutionNote ?? null]
+  );
+
+  return result.rowCount !== null && result.rowCount > 0;
+}
+
+/** Undo a closure. Everything about it is undone, so nothing stale survives. */
+export async function clearClosure(reportId: string): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE district_incident_acceptance
+        SET resolved_at = NULL,
+            resolved_by = NULL,
+            resolution_note = NULL,
+            updated_at = NOW()
+      WHERE report_id = $1::uuid AND resolved_at IS NOT NULL
+      RETURNING report_id`,
+    [reportId]
+  );
+
+  return result.rowCount !== null && result.rowCount > 0;
 }

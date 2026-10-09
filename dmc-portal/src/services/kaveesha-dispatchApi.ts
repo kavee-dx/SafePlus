@@ -62,6 +62,16 @@ export interface IncidentSummary {
   acceptedAt?: string | null;
   acceptedByName?: string | null;
   handoverNote?: string | null;
+  /**
+   * Set when the district has finished with the incident: every team is back and
+   * the numbers are in. A closure never touches the DMC's verification.
+   */
+  resolvedAt?: string | null;
+  resolvedByName?: string | null;
+  resolutionNote?: string | null;
+  /** What the completed missions on this incident reported. */
+  totalRescued: number;
+  totalEvacuated: number;
 }
 
 export interface TeamCandidate {
@@ -382,4 +392,177 @@ export async function updateMissionStage(
   } catch (error) {
     throw toError(error);
   }
+}
+
+/**
+ * The district closes an incident it has finished with. A note is optional once
+ * a team actually went, and required when none did — the desk has to be able to
+ * say later why nothing was sent.
+ */
+export async function closeIncident(
+  token: string,
+  reportIdentifier: string,
+  note?: string
+): Promise<IncidentSummary> {
+  try {
+    const { data } = await api.post(
+      `/rescue-dispatch/incidents/${reportIdentifier}/close`,
+      note ? { note } : {},
+      { headers: headersFor(token) }
+    );
+
+    return data.incident as IncidentSummary;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/** Undo a closure. The acceptance stands; only the closing stamp is removed. */
+export async function reopenIncident(
+  token: string,
+  reportIdentifier: string
+): Promise<IncidentSummary> {
+  try {
+    const { data } = await api.post(
+      `/rescue-dispatch/incidents/${reportIdentifier}/reopen`,
+      {},
+      { headers: headersFor(token) }
+    );
+
+    return data.incident as IncidentSummary;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * The live feed.
+ *
+ * The server publishes every stage a team leader taps on their phone and every
+ * incident closure, and this reads them off one open response. It is not
+ * EventSource, because an EventSource cannot carry the Authorization header and
+ * a token in a query string would end up in the access logs.
+ *
+ * The board keeps its slow poll alongside this: a dropped stream must degrade to
+ * "updates arrive in twenty seconds", never to a blind control room.
+ * ------------------------------------------------------------------ */
+
+export interface DispatchLiveEvent {
+  kind: "dispatch" | "incident" | "hello";
+  district?: string;
+  reportId?: string;
+  dispatchCode?: string;
+  teamName?: string;
+  status?: string;
+  message?: string;
+  at?: string;
+}
+
+export type StreamState = "connecting" | "live" | "retrying" | "closed";
+
+export interface StreamHandle {
+  close: () => void;
+}
+
+const STREAM_RETRY_MS = 4_000;
+const STREAM_RETRY_LIMIT_MS = 20_000;
+
+/** Split an SSE body into frames and hand out only the data payloads. */
+function readFrames(buffer: string): { events: string[]; rest: string } {
+  const parts = buffer.split("\n\n");
+  const rest = parts.pop() ?? "";
+  const events: string[] = [];
+
+  for (const part of parts) {
+    const data = part
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .join("");
+
+    // A comment frame (": keep-alive") carries no data and means nothing here.
+    if (data !== "" && !data.startsWith(":")) events.push(data);
+  }
+
+  return { events, rest };
+}
+
+export function openDispatchStream(options: {
+  token: string;
+  onEvent: (event: DispatchLiveEvent) => void;
+  onState?: (state: StreamState) => void;
+}): StreamHandle {
+  const base = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+  const controller = new AbortController();
+  let closed = false;
+  let retryIn = STREAM_RETRY_MS;
+
+  const run = async () => {
+    while (!closed) {
+      try {
+        options.onState?.("connecting");
+
+        const response = await fetch(`${base}/rescue-dispatch/stream`, {
+          headers: {
+            Authorization: `Bearer ${options.token}`,
+            Accept: "text/event-stream",
+          },
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`stream refused (${response.status})`);
+        }
+
+        // Connected: the slow poll is no longer the only thing keeping the board
+        // honest, so the backoff resets for the next drop.
+        retryIn = STREAM_RETRY_MS;
+        options.onState?.("live");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        for (;;) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const { events, rest } = readFrames(buffer);
+          buffer = rest;
+
+          for (const payload of events) {
+            try {
+              options.onEvent(JSON.parse(payload) as DispatchLiveEvent);
+            } catch {
+              // A half-written frame is not worth losing the connection over.
+            }
+          }
+        }
+      } catch (error) {
+        if (closed || (error as Error).name === "AbortError") break;
+      }
+
+      if (closed) break;
+
+      options.onState?.("retrying");
+
+      await new Promise((resolve) => setTimeout(resolve, retryIn));
+
+      retryIn = Math.min(retryIn * 2, STREAM_RETRY_LIMIT_MS);
+    }
+
+    options.onState?.("closed");
+  };
+
+  void run();
+
+  return {
+    close: () => {
+      closed = true;
+      controller.abort();
+    },
+  };
 }

@@ -16,6 +16,7 @@ import AdminLoginScreen from "./pages/amasha-AdminLoginScreen";
 import AdminDashboard from "./pages/amasha-AdminDashboard";
 import DmcOfficerDashboard from "./pages/dushani-DmcOfficerDashboard";
 import KaveeshaDistrictOfficerDashboard from "./pages/kaveesha-DistrictOfficerDashboard";
+import KaveeshaShelterDashboard from "./pages/kaveesha-ShelterDashboard";
 import CoordinatorDashboardPage from "./pages/dildhara-CoordinatorDashboardPage";
 import ResourceRequestsPage from "./pages/dildhara-ResourceRequestsPage";
 import PortalLayout, {
@@ -54,6 +55,7 @@ type ScreenType =
   | "admin-dashboard"
   | "dmc-dashboard"
   | "district-dashboard"
+  | "shelter-dashboard"
   | "rescue-organization-dashboard"
   | "team-leader-dashboard"
   | "portal";
@@ -122,6 +124,17 @@ export default function App() {
         : null;
     });
 
+  // Shelter Manager authentication and dashboard
+  const [shelterManager, setShelterManager] =
+    useState<AuthUser | null>(() => {
+      const stored = getStoredDmcToken()
+        ? getStoredDmcUser()
+        : null;
+      return stored?.role === "SHELTER_MANAGER"
+        ? stored
+        : null;
+    });
+
   // Rescue Organization Admin authentication and dashboard
   const [rescueOrgAdmin, setRescueOrgAdmin] =
     useState<AuthUser | null>(() => {
@@ -172,6 +185,14 @@ export default function App() {
     if (account.role === "DISTRICT_OFFICER") {
       setDistrictOfficer(user);
       setCurrentScreen("district-dashboard");
+      return;
+    }
+
+    // A Shelter Manager lands on their own shelter dashboard, scoped by the
+    // server to the shelters assigned to this account.
+    if (account.role === "SHELTER_MANAGER") {
+      setShelterManager(user);
+      setCurrentScreen("shelter-dashboard");
       return;
     }
 
@@ -263,6 +284,12 @@ export default function App() {
 
   const handleDistrictOfficerLogout = () => {
     setDistrictOfficer(null);
+    setCurrentScreen("login");
+  };
+
+  const handleShelterManagerLogout = () => {
+    clearDmcAuth();
+    setShelterManager(null);
     setCurrentScreen("login");
   };
 
@@ -419,6 +446,33 @@ export default function App() {
       <KaveeshaDistrictOfficerDashboard
         officer={districtOfficer}
         onLogout={handleDistrictOfficerLogout}
+      />
+    );
+  }
+
+  // -------------------------
+  // Shelter Manager Dashboard
+  // -------------------------
+
+  if (currentScreen === "shelter-dashboard") {
+    if (!shelterManager) {
+      return (
+        <KaveeshaDmcLoginScreen
+          onLogin={handleDmcEmailLogin}
+          onShowRegistration={
+            handleShowRegistration
+          }
+          onShowAdminLogin={
+            handleShowAdminLogin
+          }
+        />
+      );
+    }
+
+    return (
+      <KaveeshaShelterDashboard
+        manager={shelterManager}
+        onLogout={handleShelterManagerLogout}
       />
     );
   }

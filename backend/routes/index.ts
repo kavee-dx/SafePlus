@@ -16,6 +16,8 @@ import resourceRoutes from "./dildhara-resourceRoutes";
 import rescueOrganizationRoutes from "./kaveesha-rescueOrgRoutes";
 import rescueTeamRoutes from "./kaveesha-rescueTeamRoutes";
 import rescueDispatchRoutes from "./kaveesha-dispatchRoutes";
+import shelterRoutes from "./kaveesha-shelterRoutes";
+import shelterManagerRoutes from "./kaveesha-shelterManagerRoutes";
 import resourceRequestRoutes from "./dildhara-resourceRequestRoutes";
 
 const router = Router();
@@ -42,6 +44,8 @@ router.use("/resources", resourceRoutes);
 router.use("/rescue-organization", rescueOrganizationRoutes);
 router.use("/rescue-teams", rescueTeamRoutes);
 router.use("/rescue-dispatch", rescueDispatchRoutes);
+router.use(shelterRoutes);
+router.use("/shelter-manager", shelterManagerRoutes);
 router.use("/resource-requests", resourceRequestRoutes);
 
 export default router;

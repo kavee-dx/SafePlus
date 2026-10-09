@@ -42,7 +42,13 @@ async function migrate() {
       "warning_audit_delete_action.sql",
       "broadcast_status_skipped.sql",
       "kaveesha-rescue_dispatch.sql",
-      "kaveesha-district_incident_acceptance.sql"
+      "kaveesha-district_incident_acceptance.sql",
+      "kaveesha-incident_closure.sql",
+      "kaveesha-shelters.sql",
+      "kaveesha-shelter_managers.sql",
+      "kaveesha-evacuee_groups.sql",
+      "kaveesha-shelter_allocations.sql",
+      "kaveesha-shelter_events.sql"
     ];
 
     for (const file of migrationFiles) {
