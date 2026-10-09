@@ -19,7 +19,7 @@ import {
   Smartphone,
 } from "lucide-react";
 
-import { Colors } from "../constants/theme";
+import { Console, ConsoleTokens } from "../styles/dushani-consoleTheme";
 import type { HazardReport, SeverityLevel } from "../types/hazardReport";
 import type {
   AudiencePreview,
@@ -40,6 +40,8 @@ import {
   fetchDistricts,
   fetchDistrictRings,
   fetchVerifiedReports,
+  fetchWarning,
+  fetchWarnings,
   previewAudience,
   standDownWarning,
   synthesizeMessages,
@@ -60,6 +62,8 @@ import {
 
 interface WarningWizardProps {
   initialReportId?: string;
+  /** A saved draft reopened for its PIN step: the wizard resumes at Authorize. */
+  initialWarningId?: string;
   onExit: () => void;
   onSetupPin: () => void;
   onViewHistory: () => void;
@@ -102,6 +106,7 @@ const TAMIL_SCRIPT = /[\u0b80-\u0bff]/;
 
 export default function WarningWizard({
   initialReportId,
+  initialWarningId,
   onExit,
   onSetupPin,
   onViewHistory,
@@ -154,6 +159,10 @@ export default function WarningWizard({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  // A saved draft is unfinished work, so reopening it goes straight to the PIN
+  // step rather than being refused as a duplicate warning.
+  const [drafts, setDrafts] = useState<DisasterWarning[]>([]);
+
   const pinInputs = useRef<(HTMLInputElement | null)[]>([]);
   const districtTouched = useRef(false);
 
@@ -162,42 +171,150 @@ export default function WarningWizard({
     [reportId, verifiedReports]
   );
 
+  const draftByReport = useMemo(() => {
+    const map = new Map<string, DisasterWarning>();
+
+    for (const draft of drafts) {
+      map.set(draft.reportId, draft);
+    }
+
+    return map;
+  }, [drafts]);
+
+  const resumeDraft = (draft: DisasterWarning) => {
+    const savedRing =
+      draft.gisPolygon?.source === "CUSTOM" ? draft.gisPolygon.coordinates : null;
+
+    districtTouched.current = true;
+
+    setWarning(draft);
+    setBroadcast(null);
+    setReportId(draft.report?.id ?? draft.reportId);
+    setHazardType(draft.hazardType);
+    setSeverityLevel(draft.severityLevel);
+    setTargetDistrict(draft.targetDistrict);
+    setSafetyInstructions(draft.safetyInstructions ?? "");
+    setEnglishMessage(draft.englishMessage);
+    setSinhalaMessage(draft.sinhalaMessage);
+    setTamilMessage(draft.tamilMessage);
+    setChannels(draft.channels);
+    setExpiresInHours(draft.expiresInHours ?? DEFAULT_LIFETIME_HOURS);
+    setMode(savedRing ? "custom" : "district");
+    setPolygon(savedRing ? openRing(savedRing) : []);
+    setPin(["", "", "", "", "", ""]);
+    setError(null);
+    setFieldErrors({});
+    setStep(4);
+
+    previewAudience(draft.targetDistrict, savedRing ?? undefined)
+      .then(setAudience)
+      .catch(() => setAudience(null));
+
+    setTimeout(() => pinInputs.current[0]?.focus(), 50);
+  };
+
+  // What the officer lands on: a draft she saved opens on its PIN step, a
+  // report deep-linked from the queue prefills step 1, anything else starts at 1.
   useEffect(() => {
-    fetchVerifiedReports()
-      .then((reports) => {
-        setVerifiedReports(reports);
-        setReportsLoading(false);
+    let cancelled = false;
 
-        const wanted = reports.find(
-          (report) => report.id === initialReportId
-        );
+    void (async () => {
+      let reports: HazardReport[];
+      let openDrafts: DisasterWarning[];
 
-        if (!wanted) {
-          return;
+      try {
+        [reports, openDrafts] = await Promise.all([
+          fetchVerifiedReports(),
+          fetchWarnings().then((items) =>
+            items.filter((item) => item.status === "DRAFT")
+          ),
+        ]);
+      } catch (loadError) {
+        if (!cancelled) {
+          setReportsLoading(false);
+          setError(messageOf(loadError));
         }
 
-        if ((wanted.warningCount ?? 0) > 0) {
+        return;
+      }
+
+      let reopened: DisasterWarning | null = null;
+      let reopenFailure: string | null = null;
+
+      if (initialWarningId) {
+        try {
+          reopened = await fetchWarning(initialWarningId);
+        } catch (loadError) {
+          reopenFailure = messageOf(loadError);
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      setReportsLoading(false);
+      setVerifiedReports(reports);
+      setDrafts(openDrafts);
+
+      if (reopenFailure) {
+        setError(reopenFailure);
+        return;
+      }
+
+      if (reopened) {
+        if (reopened.status !== "DRAFT") {
           setError(
-            `${wanted.reportId} already carries a warning. One report raises one warning - reopen it from Alert history.`
+            `Warning ${reopened.warningId} is ${humanize(
+              reopened.status
+            ).toLowerCase()} and can no longer be edited.`
           );
           return;
         }
 
-        // Deep-linked from the queue: this report owns the target district.
-        districtTouched.current = true;
-        setReportId(wanted.id);
-        setHazardType(
-          HAZARD_TYPES.includes(wanted.hazardType) ? wanted.hazardType : "OTHER"
+        resumeDraft(reopened);
+        return;
+      }
+
+      if (!initialReportId) {
+        return;
+      }
+
+      const wanted = reports.find((report) => report.id === initialReportId);
+
+      if (!wanted) {
+        return;
+      }
+
+      const draft = openDrafts.find((item) => item.reportId === wanted.id);
+
+      if (draft) {
+        resumeDraft(draft);
+        return;
+      }
+
+      if ((wanted.warningCount ?? 0) > 0) {
+        setError(
+          `${wanted.reportId} already carries a warning. One report raises one warning - reopen it from Alert history.`
         );
-        setSeverityLevel(wanted.severityLevel);
-        setTargetDistrict(wanted.locationDistrict);
-        setPolygon([]);
-      })
-      .catch((loadError) => {
-        setReportsLoading(false);
-        setError(messageOf(loadError));
-      });
-  }, [initialReportId]);
+        return;
+      }
+
+      // Deep-linked from the queue: this report owns the target district.
+      districtTouched.current = true;
+      setReportId(wanted.id);
+      setHazardType(
+        HAZARD_TYPES.includes(wanted.hazardType) ? wanted.hazardType : "OTHER"
+      );
+      setSeverityLevel(wanted.severityLevel);
+      setTargetDistrict(wanted.locationDistrict);
+      setPolygon([]);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialReportId, initialWarningId]);
 
   useEffect(() => {
     fetchDistricts()
@@ -331,7 +448,11 @@ export default function WarningWizard({
 
     if (!selectedReport) {
       issues.reportId = "Pick the verified report in step 1.";
-    } else if ((selectedReport.warningCount ?? 0) > 0) {
+    } else if (
+      (selectedReport.warningCount ?? 0) > 0 &&
+      warning?.reportId !== selectedReport.id
+    ) {
+      // The draft being edited is the warning this report already carries.
       issues.reportId =
         "This report already carries a warning. One report raises one warning only.";
     }
@@ -374,6 +495,7 @@ export default function WarningWizard({
     sinhalaMessage,
     tamilMessage,
     targetDistrict,
+    warning,
   ]);
 
   const canContinue = () => {
@@ -565,6 +687,27 @@ export default function WarningWizard({
     setStep((current) => Math.min(5, current + 1));
   };
 
+  const chooseReport = (report: HazardReport) => {
+    const draft = draftByReport.get(report.id);
+
+    if (draft && draft.warningId !== warning?.warningId) {
+      resumeDraft(draft);
+      return;
+    }
+
+    // Moving to a different report abandons the draft in hand, which stays on
+    // Alert history for its owner to reopen.
+    if (warning && warning.reportId !== report.id) {
+      setWarning(null);
+      setBroadcast(null);
+    }
+
+    setReportId(report.id);
+    applyReportDefaults(report);
+    setMode("district");
+    setPolygon([]);
+  };
+
   const renderStepContent = () => {
     switch (step) {
       case 1:
@@ -573,12 +716,8 @@ export default function WarningWizard({
             reports={verifiedReports}
             loading={reportsLoading}
             selectedId={reportId}
-            onSelect={(report) => {
-              setReportId(report.id);
-              applyReportDefaults(report);
-              setMode("district");
-              setPolygon([]);
-            }}
+            draftByReport={draftByReport}
+            onSelect={chooseReport}
             onExit={onExit}
           />
         );
@@ -644,7 +783,7 @@ export default function WarningWizard({
   };
 
   return (
-    <div className="wz">
+    <div className="wz dq-console">
       <ol className="wz-steps">
         {STEPS.map((label, index) => {
           const number = index + 1;
@@ -858,12 +997,14 @@ function StepReport({
   reports,
   loading,
   selectedId,
+  draftByReport,
   onSelect,
   onExit,
 }: {
   reports: HazardReport[];
   loading: boolean;
   selectedId: string;
+  draftByReport: Map<string, DisasterWarning>;
   onSelect: (report: HazardReport) => void;
   onExit: () => void;
 }) {
@@ -891,7 +1032,11 @@ function StepReport({
     );
   }
 
-  if (reports.every((report) => (report.warningCount ?? 0) > 0)) {
+  if (
+    reports.every(
+      (report) => (report.warningCount ?? 0) > 0 && !draftByReport.has(report.id)
+    )
+  ) {
     return (
       <div className="wz-empty">
         <Ban size={26} />
@@ -913,13 +1058,16 @@ function StepReport({
       <h2 className="wz-card-title">Which report is this warning for?</h2>
       <p className="wz-card-lead">
         Every warning is linked to one verified ground report, and one report
-        raises exactly one warning. A report that has already been alerted on is
-        closed here - reopen that warning from Alert history instead.
+        raises exactly one warning. A report whose warning is already issued is
+        closed here - reopen that warning from Alert history. A report with a
+        draft of yours still open reopens on its PIN step.
       </p>
 
       <div className="wz-report-list">
         {reports.map((report) => {
+          const draft = draftByReport.get(report.id);
           const used = (report.warningCount ?? 0) > 0;
+          const locked = used && !draft;
 
           return (
             <button
@@ -927,15 +1075,17 @@ function StepReport({
               key={report.id}
               className={`wz-report ${
                 report.id === selectedId ? "wz-report-selected" : ""
-              } ${used ? "wz-report-used" : ""}`}
-              disabled={used}
+              } ${locked ? "wz-report-used" : ""}`}
+              disabled={locked}
               title={
-                used
-                  ? "This report already has a warning. Reopen it from Alert history."
-                  : undefined
+                draft
+                  ? "This draft is waiting for its clearance PIN. Open it to issue the warning."
+                  : locked
+                    ? "This report already has a warning. Reopen it from Alert history."
+                    : undefined
               }
               onClick={() => {
-                if (used) {
+                if (locked) {
                   return;
                 }
 
@@ -943,8 +1093,10 @@ function StepReport({
               }}
             >
               <span className="wz-report-radio">
-                {used ? (
+                {locked ? (
                   <Ban size={18} />
+                ) : draft ? (
+                  <Megaphone size={18} />
                 ) : report.id === selectedId ? (
                   <CheckCircle size={18} />
                 ) : null}
@@ -960,7 +1112,12 @@ function StepReport({
                   <span className="sp-pill sp-pill-blue">
                     {report.locationDistrict} District
                   </span>
-                  {used && <span className="sp-pill sp-pill-slate">Already alerted</span>}
+                  {draft && (
+                    <span className="sp-pill sp-pill-amber">
+                      Draft waiting for PIN
+                    </span>
+                  )}
+                  {locked && <span className="sp-pill sp-pill-slate">Already alerted</span>}
                 </span>
                 <span className="sp-facts">
                   <span className="sp-fact">
@@ -977,7 +1134,13 @@ function StepReport({
                     <span className="sp-label">Received</span>
                     <span className="sp-value">{relativeTime(report.createdAt)}</span>
                   </span>
-                  {used && (
+                  {draft && (
+                    <span className="sp-fact">
+                      <span className="sp-label">Draft</span>
+                      <span className="sp-value sp-mono">{draft.warningId}</span>
+                    </span>
+                  )}
+                  {locked && (
                     <span className="sp-fact">
                       <span className="sp-label">Warnings raised</span>
                       <span className="sp-value">{report.warningCount ?? 0}</span>
@@ -1739,6 +1902,18 @@ function closedBoundary(points: Coordinate[]): Coordinate[] {
   return [...points, points[0]];
 }
 
+/** A ring the server stored closed is drawn from its corners only. */
+function openRing(points: Coordinate[]): Coordinate[] {
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  if (points.length > 3 && first && last && first.lat === last.lat && first.lng === last.lng) {
+    return points.slice(0, -1);
+  }
+
+  return points;
+}
+
 function humanize(value: string): string {
   return value
     .split("_")
@@ -1781,15 +1956,21 @@ function messageOf(error: unknown): string {
 
 // Shared with src/styles/dushani-dashboardStyles.ts so the wizard and the
 // dashboard read from one visual system: same elevation, radii and focus ring.
-const Hairline = "#EAECF0";
-const Divider = "#F2F4F7";
-const Surface = "#F9FAFB";
-const RedTint = "#FEF3F2";
-const GreenTint = "#DCFCE7";
-const GreenText = "#166534";
-const ShadowCard = "0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06)";
-const ShadowRaised = "0 4px 12px rgba(16, 24, 40, 0.09), 0 2px 4px rgba(16, 24, 40, 0.05)";
-const FocusRing = "0 0 0 3px rgba(217, 45, 32, 0.16)";
+const Hairline = Console.line;
+const Divider = Console.lineSoft;
+const Surface = Console.surfaceAlt;
+const Card = Console.surface;
+const Ink = Console.ink;
+const InkDim = Console.inkDim;
+const White = "#FFFFFF";
+const Line = Console.line;
+const RedTint = Console.redTint;
+const RedText = Console.redInk;
+const GreenTint = Console.greenTint;
+const GreenText = Console.greenInk;
+const ShadowCard = ConsoleTokens.ShadowCard;
+const ShadowRaised = ConsoleTokens.ShadowRaised;
+const FocusRing = ConsoleTokens.FocusRing;
 
 const WIZARD_STYLES = `
   .wz {
@@ -1798,7 +1979,7 @@ const WIZARD_STYLES = `
     flex-direction: column;
     gap: 20px;
     max-width: 940px;
-    color: ${Colors.text};
+    color: ${Ink};
     font-variant-numeric: tabular-nums;
   }
 
@@ -1831,23 +2012,23 @@ const WIZARD_STYLES = `
     gap: 8px;
     padding: 7px 13px 7px 9px;
     border-radius: 999px;
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.01em;
-    color: ${Colors.muted};
+    color: ${InkDim};
     transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
   }
 
   .wz-step-active {
-    border-color: #fda29b;
-    color: ${Colors.redDark};
-    background: ${RedTint};
+    border-color: var(--sp-blue-line, #1E3A66);
+    color: ${Console.blueInk};
+    background: ${Console.blueTint};
   }
 
   .wz-step-done {
-    border-color: #a7f3c0;
+    border-color: var(--sp-green-line, #174E2E);
     color: ${GreenText};
     background: ${GreenTint};
   }
@@ -1859,26 +2040,26 @@ const WIZARD_STYLES = `
     width: 19px;
     height: 19px;
     border-radius: 50%;
-    background: ${Colors.border};
-    color: ${Colors.white};
+    background: ${Line};
+    color: ${White};
     font-size: 10.5px;
     font-weight: 800;
     flex-shrink: 0;
   }
 
   .wz-step-active .wz-step-dot {
-    background: ${Colors.red};
-    color: ${Colors.white};
+    background: ${Console.blue};
+    color: ${White};
   }
 
   .wz-step-done .wz-step-dot {
     background: transparent;
-    color: ${Colors.success};
+    color: ${Console.green};
   }
 
   .wz-card {
     position: relative;
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     border-radius: 16px;
     padding: 26px 28px;
@@ -1893,14 +2074,14 @@ const WIZARD_STYLES = `
     font-size: 15px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
   }
 
   .wz-card-lead {
     margin: 0;
     font-size: 13px;
     line-height: 1.65;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .wz-banner {
@@ -1923,14 +2104,14 @@ const WIZARD_STYLES = `
 
   .wz-banner-error {
     background: ${RedTint};
-    color: ${Colors.redDark};
-    border-color: #fda29b;
+    color: ${RedText};
+    border-color: var(--sp-red-line, #5F1D22);
   }
 
   .wz-banner-warn {
-    background: ${Colors.amberLight};
-    color: ${Colors.amberText};
-    border-color: #fdcf5f;
+    background: ${Console.amberTint};
+    color: ${Console.amberInk};
+    border-color: var(--sp-amber-line, #5C4310);
   }
 
   .wz-requirements {
@@ -1948,26 +2129,26 @@ const WIZARD_STYLES = `
     justify-content: center;
     gap: 10px;
     padding: 22px;
-    border: 1px dashed ${Colors.border};
+    border: 1px dashed ${Line};
     border-radius: 14px;
     background: ${Surface};
-    color: ${Colors.muted};
+    color: ${InkDim};
     font-size: 13px;
     font-weight: 600;
   }
 
   .wz-state svg {
-    color: ${Colors.red};
+    color: ${Console.red};
   }
 
   .wz-empty {
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     border-radius: 16px;
     padding: 46px 26px;
     box-shadow: ${ShadowCard};
     text-align: center;
-    color: ${Colors.muted};
+    color: ${InkDim};
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1975,7 +2156,7 @@ const WIZARD_STYLES = `
   }
 
   .wz-empty > svg {
-    color: ${Colors.red};
+    color: ${Console.red};
     opacity: 0.9;
   }
 
@@ -1984,7 +2165,7 @@ const WIZARD_STYLES = `
     font-size: 15px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
   }
 
   .wz-empty p {
@@ -2008,7 +2189,7 @@ const WIZARD_STYLES = `
     padding: 16px 18px;
     border: 1px solid ${Hairline};
     border-radius: 14px;
-    background: ${Colors.white};
+    background: ${Card};
     box-shadow: ${ShadowCard};
     cursor: pointer;
     transition: border-color 160ms ease, box-shadow 160ms ease,
@@ -2016,25 +2197,25 @@ const WIZARD_STYLES = `
   }
 
   .wz-report:hover:not(.wz-report-used) {
-    border-color: ${Colors.border};
+    border-color: ${Line};
     box-shadow: ${ShadowRaised};
     transform: translateY(-1px);
   }
 
   .wz-report:focus-visible {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     box-shadow: ${FocusRing};
   }
 
   .wz-report-selected {
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     background: ${RedTint};
     box-shadow: 0 1px 3px rgba(217, 45, 32, 0.16);
   }
 
   .wz-report-selected:hover:not(.wz-report-used) {
-    border-color: ${Colors.redDark};
+    border-color: ${RedText};
     transform: none;
   }
 
@@ -2049,11 +2230,11 @@ const WIZARD_STYLES = `
   }
 
   .wz-report-used .wz-report-radio {
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .wz-report-radio {
-    color: ${Colors.red};
+    color: ${Console.red};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2073,13 +2254,13 @@ const WIZARD_STYLES = `
     font-size: 13.5px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
   }
 
   .wz-report-desc {
     font-size: 13px;
     font-weight: 500;
-    color: ${Colors.text};
+    color: ${Ink};
     line-height: 1.55;
   }
 
@@ -2101,18 +2282,18 @@ const WIZARD_STYLES = `
     font-weight: 800;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .wz-field select,
   .wz-field textarea {
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     border-radius: 10px;
-    background: ${Colors.white};
-    color: ${Colors.text};
+    background: ${Card};
+    color: ${Ink};
     font-size: 13px;
     font-weight: 600;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    box-shadow: none;
     transition: border-color 140ms ease, box-shadow 140ms ease;
   }
 
@@ -2129,13 +2310,13 @@ const WIZARD_STYLES = `
 
   .wz-field select:hover:not(:disabled),
   .wz-field textarea:hover:not(:disabled) {
-    border-color: ${Colors.navy};
+    border-color: ${Console.blueSoft};
   }
 
   .wz-field select:focus,
   .wz-field textarea:focus {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
   }
 
   .wz-field select:focus-visible,
@@ -2152,12 +2333,12 @@ const WIZARD_STYLES = `
   .wz-help {
     font-size: 12px;
     font-weight: 500;
-    color: ${Colors.muted};
+    color: ${InkDim};
     line-height: 1.55;
   }
 
   .wz-field-error-text {
-    color: ${Colors.redDark};
+    color: ${RedText};
     font-weight: 600;
   }
 
@@ -2168,7 +2349,7 @@ const WIZARD_STYLES = `
     gap: 3px;
     padding: 3px;
     background: ${Surface};
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     border-radius: 10px;
   }
 
@@ -2181,7 +2362,7 @@ const WIZARD_STYLES = `
     border: none;
     border-radius: 7px;
     background: transparent;
-    color: ${Colors.muted};
+    color: ${InkDim};
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
@@ -2189,8 +2370,8 @@ const WIZARD_STYLES = `
   }
 
   .wz-segment-button:hover {
-    color: ${Colors.text};
-    background: ${Colors.white};
+    color: ${Ink};
+    background: ${Card};
   }
 
   .wz-segment-button:focus-visible {
@@ -2199,14 +2380,14 @@ const WIZARD_STYLES = `
   }
 
   .wz-segment-active {
-    background: ${Colors.navy};
-    color: ${Colors.white};
-    box-shadow: 0 1px 3px rgba(11, 31, 51, 0.28);
+    background: ${Console.blue};
+    color: ${White};
+    box-shadow: 0 0 0 1px ${Console.blueSoft};
   }
 
   .wz-segment-active:hover {
-    color: ${Colors.white};
-    background: ${Colors.navy};
+    color: ${White};
+    background: ${Console.blueSoft};
   }
 
   .wz-audience {
@@ -2222,7 +2403,7 @@ const WIZARD_STYLES = `
     font-size: 13px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
     display: flex;
     align-items: center;
     gap: 8px;
@@ -2240,7 +2421,7 @@ const WIZARD_STYLES = `
     border: 1px solid ${Hairline};
     border-radius: 12px;
     padding: 14px 16px 14px 18px;
-    background: ${Colors.white};
+    background: ${Card};
     box-shadow: ${ShadowCard};
     display: flex;
     flex-direction: column;
@@ -2255,23 +2436,23 @@ const WIZARD_STYLES = `
     top: 0;
     bottom: 0;
     width: 3px;
-    background: ${Colors.border};
+    background: ${Line};
   }
 
   .wz-stat:nth-child(1)::before {
-    background: ${Colors.blue};
+    background: ${Console.blue};
   }
 
   .wz-stat:nth-child(2)::before {
-    background: ${Colors.success};
+    background: ${Console.green};
   }
 
   .wz-stat:nth-child(3)::before {
-    background: ${Colors.amber};
+    background: ${Console.amber};
   }
 
   .wz-stat:nth-child(4)::before {
-    background: ${Colors.red};
+    background: ${Console.red};
   }
 
   .wz-stat:hover {
@@ -2284,13 +2465,13 @@ const WIZARD_STYLES = `
     line-height: 1.1;
     font-weight: 800;
     letter-spacing: -0.02em;
-    color: ${Colors.text};
+    color: ${Ink};
     font-variant-numeric: tabular-nums;
   }
 
   .wz-stat-label {
     font-size: 11px;
-    color: ${Colors.muted};
+    color: ${InkDim};
     font-weight: 600;
     line-height: 1.35;
   }
@@ -2306,20 +2487,20 @@ const WIZARD_STYLES = `
     display: flex;
     align-items: center;
     gap: 8px;
-    color: ${Colors.muted};
+    color: ${InkDim};
     font-variant-numeric: tabular-nums;
   }
 
   .wz-audience-ok {
     background: ${GreenTint};
-    border-color: #a7f3c0;
+    border-color: var(--sp-green-line, #174E2E);
     color: ${GreenText};
   }
 
   .wz-audience-block {
     background: ${RedTint};
-    border-color: #fda29b;
-    color: ${Colors.redDark};
+    border-color: var(--sp-red-line, #5F1D22);
+    color: ${RedText};
   }
 
   .wz-message-grid {
@@ -2341,7 +2522,7 @@ const WIZARD_STYLES = `
     font-size: 13px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
   }
 
   .wz-channel-grid {
@@ -2355,26 +2536,26 @@ const WIZARD_STYLES = `
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     border-radius: 10px;
-    background: ${Colors.white};
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    background: ${Card};
+    box-shadow: none;
     font-size: 13px;
     font-weight: 700;
-    color: ${Colors.muted};
+    color: ${InkDim};
     cursor: pointer;
     transition: border-color 140ms ease, background 140ms ease, color 140ms ease,
       box-shadow 140ms ease;
   }
 
   .wz-channel:hover {
-    border-color: ${Colors.navy};
-    color: ${Colors.text};
+    border-color: ${Console.blueSoft};
+    color: ${Ink};
   }
 
   .wz-channel:focus-within {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     box-shadow: ${FocusRing};
   }
 
@@ -2382,21 +2563,21 @@ const WIZARD_STYLES = `
     width: 16px;
     height: 16px;
     margin: 0;
-    accent-color: ${Colors.red};
+    accent-color: ${Console.red};
     cursor: pointer;
     flex-shrink: 0;
   }
 
   .wz-channel-on {
-    border-color: ${Colors.red};
-    color: ${Colors.redDark};
+    border-color: ${Console.red};
+    color: ${RedText};
     background: ${RedTint};
     box-shadow: 0 1px 3px rgba(217, 45, 32, 0.14);
   }
 
   .wz-channel-on:hover {
-    border-color: ${Colors.redDark};
-    color: ${Colors.redDark};
+    border-color: ${RedText};
+    color: ${RedText};
   }
 
   .wz-channel-locked {
@@ -2405,7 +2586,7 @@ const WIZARD_STYLES = `
   }
 
   .wz-channel-locked:hover {
-    border-color: ${Colors.border};
+    border-color: ${Line};
   }
 
   .wz-authorize::before {
@@ -2416,7 +2597,7 @@ const WIZARD_STYLES = `
     bottom: 14px;
     width: 4px;
     border-radius: 0 4px 4px 0;
-    background: linear-gradient(180deg, ${Colors.red} 0%, ${Colors.redDark} 100%);
+    background: linear-gradient(180deg, ${Console.red} 0%, ${RedText} 100%);
   }
 
   .wz-summary {
@@ -2441,13 +2622,13 @@ const WIZARD_STYLES = `
     font-weight: 800;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .wz-summary-value {
     font-size: 13px;
     font-weight: 700;
-    color: ${Colors.text};
+    color: ${Ink};
     word-break: break-word;
     font-variant-numeric: tabular-nums;
   }
@@ -2462,24 +2643,24 @@ const WIZARD_STYLES = `
   .wz-pinbox-digit {
     width: 52px;
     height: 60px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Console.cyanTint};
     border-radius: 12px;
     text-align: center;
     font-size: 24px;
     font-weight: 800;
-    color: ${Colors.text};
-    background: ${Colors.white};
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    color: ${Ink};
+    background: ${Card};
+    box-shadow: none;
     transition: border-color 140ms ease, box-shadow 140ms ease;
   }
 
   .wz-pinbox-digit:hover:not(:disabled) {
-    border-color: ${Colors.navy};
+    border-color: ${Console.blueSoft};
   }
 
   .wz-pinbox-digit:focus {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.cyan};
   }
 
   .wz-pinbox-digit:focus-visible {
@@ -2495,7 +2676,7 @@ const WIZARD_STYLES = `
     border: none;
     background: none;
     padding: 0;
-    color: ${Colors.blue};
+    color: ${Console.blue};
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
@@ -2504,7 +2685,7 @@ const WIZARD_STYLES = `
   }
 
   .wz-link:hover {
-    color: ${Colors.blueDark};
+    color: ${Console.blueInk};
   }
 
   .wz-link:focus-visible {
@@ -2522,7 +2703,7 @@ const WIZARD_STYLES = `
   .wz-delivered > svg {
     color: ${GreenText};
     background: ${GreenTint};
-    border: 1px solid #a7f3c0;
+    border: 1px solid var(--sp-green-line, #174E2E);
     border-radius: 999px;
     padding: 8px;
     width: 48px;
@@ -2543,7 +2724,7 @@ const WIZARD_STYLES = `
     border: 1px solid ${Hairline};
     border-radius: 14px;
     padding: 16px 16px 16px 19px;
-    background: ${Colors.white};
+    background: ${Card};
     box-shadow: ${ShadowCard};
     display: flex;
     flex-direction: column;
@@ -2558,29 +2739,29 @@ const WIZARD_STYLES = `
     top: 0;
     bottom: 0;
     width: 4px;
-    background: ${Colors.border};
+    background: ${Line};
   }
 
   .wz-result:hover {
-    border-color: ${Colors.border};
+    border-color: ${Line};
     box-shadow: ${ShadowRaised};
   }
 
   .wz-result-success::before {
-    background: ${Colors.success};
+    background: ${Console.green};
   }
 
   .wz-result-partial::before {
-    background: ${Colors.amber};
+    background: ${Console.amber};
   }
 
   .wz-result-failed::before,
   .wz-result-pending::before {
-    background: ${Colors.red};
+    background: ${Console.red};
   }
 
   .wz-result-skipped::before {
-    background: ${Colors.border};
+    background: ${Line};
   }
 
   .wz-result-head {
@@ -2597,11 +2778,11 @@ const WIZARD_STYLES = `
     font-size: 13px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
   }
 
   .wz-result-channel svg {
-    color: ${Colors.muted};
+    color: ${InkDim};
     flex-shrink: 0;
   }
 
@@ -2611,14 +2792,14 @@ const WIZARD_STYLES = `
     gap: 6px;
     padding: 4px 10px;
     border-radius: 999px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     background: ${Surface};
     font-size: 10.5px;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     white-space: nowrap;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .wz-result-status::before {
@@ -2632,32 +2813,32 @@ const WIZARD_STYLES = `
 
   .wz-result-success .wz-result-status {
     background: ${GreenTint};
-    border-color: #a7f3c0;
+    border-color: var(--sp-green-line, #174E2E);
     color: ${GreenText};
   }
 
   .wz-result-partial .wz-result-status {
-    background: ${Colors.amberLight};
-    border-color: #fdcf5f;
-    color: ${Colors.amberText};
+    background: ${Console.amberTint};
+    border-color: var(--sp-amber-line, #5C4310);
+    color: ${Console.amberInk};
   }
 
   .wz-result-failed .wz-result-status {
-    background: ${Colors.redLight};
-    border-color: #fda29b;
-    color: ${Colors.redDark};
+    background: ${RedTint};
+    border-color: var(--sp-red-line, #5F1D22);
+    color: ${RedText};
   }
 
   .wz-result-pending .wz-result-status {
-    background: ${Colors.blueLight};
-    border-color: #b5d8fb;
-    color: ${Colors.blueDark};
+    background: ${Console.blueTint};
+    border-color: var(--sp-blue-line, #1E3A66);
+    color: ${Console.blueInk};
   }
 
   .wz-result-skipped .wz-result-status {
-    background: ${Colors.background};
-    border-color: ${Colors.border};
-    color: ${Colors.muted};
+    background: ${Console.bg};
+    border-color: ${Line};
+    color: ${InkDim};
   }
 
   .wz-result-metrics {
@@ -2666,7 +2847,7 @@ const WIZARD_STYLES = `
     flex-wrap: wrap;
     font-size: 12px;
     font-weight: 600;
-    color: ${Colors.muted};
+    color: ${InkDim};
     font-variant-numeric: tabular-nums;
   }
 
@@ -2677,14 +2858,14 @@ const WIZARD_STYLES = `
     background: ${RedTint};
     font-size: 12px;
     font-weight: 600;
-    color: ${Colors.redDark};
+    color: ${RedText};
   }
 
   .wz-result-note {
     margin: 0;
     font-size: 12px;
     font-weight: 500;
-    color: ${Colors.muted};
+    color: ${InkDim};
     line-height: 1.5;
   }
 
@@ -2721,22 +2902,22 @@ const WIZARD_STYLES = `
     gap: 8px;
     height: 38px;
     padding: 0 15px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     border-radius: 10px;
-    background: ${Colors.white};
-    color: ${Colors.text};
+    background: ${Card};
+    color: ${Ink};
     font-size: 13px;
     font-weight: 700;
     white-space: nowrap;
     cursor: pointer;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    box-shadow: none;
     transition: background 140ms ease, border-color 140ms ease, color 140ms ease,
       transform 140ms ease, box-shadow 140ms ease;
   }
 
   .wz-button:hover:not(:disabled) {
-    border-color: ${Colors.navy};
-    color: ${Colors.navy};
+    border-color: ${Console.blueSoft};
+    color: ${Console.blueInk};
     box-shadow: ${ShadowCard};
   }
 
@@ -2746,7 +2927,7 @@ const WIZARD_STYLES = `
 
   .wz-button:focus-visible {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     box-shadow: ${FocusRing};
   }
 
@@ -2756,48 +2937,48 @@ const WIZARD_STYLES = `
   }
 
   .wz-button-primary {
-    background: ${Colors.red};
-    border-color: ${Colors.red};
-    color: ${Colors.white};
+    background: ${Console.red};
+    border-color: ${Console.red};
+    color: ${White};
     box-shadow: 0 1px 3px rgba(217, 45, 32, 0.32);
   }
 
   .wz-button-primary:hover:not(:disabled) {
-    background: ${Colors.redDark};
-    border-color: ${Colors.redDark};
-    color: ${Colors.white};
+    background: ${RedText};
+    border-color: ${RedText};
+    color: ${White};
     box-shadow: 0 4px 12px -4px rgba(180, 35, 24, 0.5);
   }
 
   .wz-button-danger {
     background: ${RedTint};
-    border-color: #fda29b;
-    color: ${Colors.redDark};
+    border-color: var(--sp-red-line, #5F1D22);
+    color: ${RedText};
   }
 
   .wz-button-danger:hover:not(:disabled) {
-    background: ${Colors.redLight};
-    border-color: ${Colors.red};
-    color: ${Colors.redDark};
+    background: ${RedTint};
+    border-color: ${Console.red};
+    color: ${RedText};
   }
 
   .wz-button-ghost {
-    background: ${Colors.white};
-    border-color: ${Colors.border};
-    color: ${Colors.text};
+    background: ${Card};
+    border-color: ${Line};
+    color: ${Ink};
   }
 
   .wz-button-soft {
-    background: ${Colors.blueLight};
-    border-color: #b5d8fb;
-    color: ${Colors.blueDark};
-    box-shadow: 0 1px 2px rgba(21, 112, 239, 0.12);
+    background: ${Console.blueTint};
+    border-color: var(--sp-blue-line, #1E3A66);
+    color: ${Console.blueInk};
+    box-shadow: none;
   }
 
   .wz-button-soft:hover:not(:disabled) {
-    background: #bcdcfb;
-    border-color: ${Colors.blue};
-    color: ${Colors.blueDark};
+    background: ${Console.blueSoft};
+    border-color: ${Console.blue};
+    color: ${Console.blueInk};
   }
 
   .wz-spin {

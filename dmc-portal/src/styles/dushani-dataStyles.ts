@@ -18,6 +18,11 @@ const Mono =
  * One vocabulary for presenting facts, shared by every portal surface so a
  * report, a warning and a profile all break their details into the same rows.
  * Render it once per page with `<style>{DATA_STYLES}</style>`.
+ *
+ * Every colour is a variable with the light value as its fallback, so a page
+ * that wraps itself in `.dq-console` (see dushani-consoleTheme.ts) flips this
+ * whole vocabulary to the wireframe's dark console without touching the
+ * surfaces that never opted in.
  */
 export const DATA_STYLES = `
   .sp-list {
@@ -36,7 +41,7 @@ export const DATA_STYLES = `
     gap: 4px 16px;
     margin: 0;
     padding: 9px 0;
-    border-bottom: 1px solid ${Divider};
+    border-bottom: 1px solid var(--sp-divider, ${Divider});
   }
 
   .sp-list > .sp-row:last-child,
@@ -57,7 +62,7 @@ export const DATA_STYLES = `
     font-weight: 800;
     letter-spacing: 0.085em;
     text-transform: uppercase;
-    color: ${Colors.muted};
+    color: var(--sp-label, ${Colors.muted});
   }
 
   .sp-value,
@@ -66,7 +71,7 @@ export const DATA_STYLES = `
     font-size: 13px;
     font-weight: 700;
     line-height: 1.5;
-    color: ${Colors.text};
+    color: var(--sp-ink, ${Colors.text});
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
@@ -82,7 +87,7 @@ export const DATA_STYLES = `
   }
 
   .sp-muted {
-    color: ${Colors.muted};
+    color: var(--sp-ink-dim, ${Colors.muted});
     font-weight: 600;
   }
 
@@ -98,9 +103,9 @@ export const DATA_STYLES = `
     flex-direction: column;
     gap: 3px;
     padding: 11px 13px;
-    border: 1px solid ${Hairline};
+    border: 1px solid var(--sp-line, ${Hairline});
     border-radius: 10px;
-    background: ${Surface};
+    background: var(--sp-surface, ${Surface});
   }
 
   .sp-cell .sp-label {
@@ -147,7 +152,7 @@ export const DATA_STYLES = `
     font-size: 12.5px;
     font-weight: 500;
     line-height: 1.55;
-    color: ${Colors.text};
+    color: var(--sp-ink, ${Colors.text});
   }
 
   .sp-bullets > li::before {
@@ -158,7 +163,7 @@ export const DATA_STYLES = `
     width: 5px;
     height: 5px;
     border-radius: 50%;
-    background: ${Colors.border};
+    background: var(--sp-bullet, ${Colors.border});
   }
 
   .sp-badges {
@@ -172,14 +177,14 @@ export const DATA_STYLES = `
     align-items: center;
     gap: 6px;
     padding: 3px 9px 3px 8px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid var(--sp-pill-border, ${Colors.border});
     border-radius: 999px;
-    background: ${Colors.white};
+    background: var(--sp-pill-bg, ${Colors.white});
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.02em;
     line-height: 1.5;
-    color: ${Colors.text};
+    color: var(--sp-pill-ink, ${Colors.text});
     white-space: nowrap;
   }
 
@@ -197,52 +202,53 @@ export const DATA_STYLES = `
   }
 
   .sp-pill-red {
-    border-color: #FDA29B;
-    background: ${RedTint};
-    color: ${Colors.redDark};
+    border-color: var(--sp-red-line, #FDA29B);
+    background: var(--sp-red-bg, ${RedTint});
+    color: var(--sp-red-ink, ${Colors.redDark});
   }
 
   .sp-pill-green {
-    border-color: #A7F3C0;
-    background: ${GreenTint};
-    color: ${GreenText};
+    border-color: var(--sp-green-line, #A7F3C0);
+    background: var(--sp-green-bg, ${GreenTint});
+    color: var(--sp-green-ink, ${GreenText});
   }
 
   .sp-pill-amber {
-    border-color: #FDCF5F;
-    background: ${AmberTint};
-    color: ${AmberText};
+    border-color: var(--sp-amber-line, #FDCF5F);
+    background: var(--sp-amber-bg, ${AmberTint});
+    color: var(--sp-amber-ink, ${AmberText});
   }
 
   .sp-pill-blue {
-    border-color: #B2DDFF;
-    background: ${BlueTint};
-    color: ${Colors.blueDark};
+    border-color: var(--sp-blue-line, #B2DDFF);
+    background: var(--sp-blue-bg, ${BlueTint});
+    color: var(--sp-blue-ink, ${Colors.blueDark});
   }
 
   .sp-pill-slate {
-    background: ${Surface};
-    color: ${Colors.muted};
+    border-color: var(--sp-pill-border, ${Colors.border});
+    background: var(--sp-surface, ${Surface});
+    color: var(--sp-ink-dim, ${Colors.muted});
   }
 
   /* A single instruction or quote worth isolating from the facts around it. */
   .sp-block {
     padding: 11px 13px;
-    border: 1px solid ${Hairline};
-    border-left: 3px solid ${Colors.navy};
+    border: 1px solid var(--sp-line, ${Hairline});
+    border-left: 3px solid var(--sp-block-accent, ${Colors.navy});
     border-radius: 10px;
-    background: ${Surface};
+    background: var(--sp-surface, ${Surface});
     font-size: 13px;
     font-weight: 600;
     line-height: 1.55;
-    color: ${Colors.text};
+    color: var(--sp-ink, ${Colors.text});
   }
 
   .sp-block-red {
-    border-color: #FDA29B;
-    border-left-color: ${Colors.red};
-    background: ${RedTint};
-    color: ${Colors.redDark};
+    border-color: var(--sp-red-line, #FDA29B);
+    border-left-color: var(--sp-red-ink, ${Colors.red});
+    background: var(--sp-red-bg, ${RedTint});
+    color: var(--sp-red-ink, ${Colors.redDark});
   }
 
   .sp-stack {
@@ -253,13 +259,13 @@ export const DATA_STYLES = `
 
   .sp-empty {
     padding: 14px 16px;
-    border: 1px dashed ${Colors.border};
+    border: 1px dashed var(--sp-line, ${Colors.border});
     border-radius: 10px;
-    background: ${Surface};
+    background: var(--sp-surface, ${Surface});
     font-size: 12.5px;
     font-weight: 500;
     line-height: 1.6;
-    color: ${Colors.muted};
+    color: var(--sp-ink-dim, ${Colors.muted});
   }
 
   /* Delivery share as a bar rather than "1,203/1,204 delivered" prose. */
@@ -274,7 +280,7 @@ export const DATA_STYLES = `
     height: 6px;
     min-width: 60px;
     border-radius: 999px;
-    background: ${Divider};
+    background: var(--sp-meter-track, ${Divider});
     overflow: hidden;
   }
 
@@ -298,7 +304,7 @@ export const DATA_STYLES = `
     font-family: ${Mono};
     font-size: 11.5px;
     font-weight: 700;
-    color: ${Colors.text};
+    color: var(--sp-ink, ${Colors.text});
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -308,7 +314,7 @@ export const DATA_STYLES = `
     display: flex;
     flex-direction: column;
     gap: 0;
-    border: 1px solid ${Hairline};
+    border: 1px solid var(--sp-line, ${Hairline});
     border-radius: 10px;
     overflow: hidden;
   }
@@ -323,21 +329,21 @@ export const DATA_STYLES = `
   }
 
   .sp-table-head {
-    background: ${Surface};
-    border-bottom: 1px solid ${Hairline};
+    background: var(--sp-surface-alt, ${Surface});
+    border-bottom: 1px solid var(--sp-line, ${Hairline});
     font-size: 9.5px;
     font-weight: 800;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: ${Colors.muted};
+    color: var(--sp-label, ${Colors.muted});
   }
 
   .sp-table-row + .sp-table-row {
-    border-top: 1px solid ${Divider};
+    border-top: 1px solid var(--sp-divider, ${Divider});
   }
 
   .sp-table-row {
-    background: ${Colors.white};
+    background: var(--sp-card, ${Colors.white});
     font-size: 12.5px;
   }
 

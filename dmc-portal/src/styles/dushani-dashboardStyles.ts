@@ -1,31 +1,36 @@
-import { Colors } from "../constants/theme";
+import { Console, ConsoleTokens as T } from "./dushani-consoleTheme";
 
 /**
  * The dashboard's visual system. Kept out of the page file the same way the
  * registration form keeps its CSS, so the layout can be tuned without wading
- * through JSX. Light mode is forced: the scaffold `index.css` still flips its
- * CSS variables on `prefers-color-scheme: dark`, which would wash out text.
+ * through JSX. The palette follows the group 30 wireframes: a dark navy
+ * console with one lighter step per elevation.
  */
-const Hairline = "#EAECF0";
-const Divider = "#F2F4F7";
-const Surface = "#F9FAFB";
-const Green = Colors.success;
-const GreenTint = "#DCFCE7";
-const GreenText = "#166534";
-const RedTint = "#FEF3F2";
-const ShadowCard = "0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06)";
-const ShadowRaised = "0 4px 12px rgba(16, 24, 40, 0.09), 0 2px 4px rgba(16, 24, 40, 0.05)";
-const FocusRing = "0 0 0 3px rgba(217, 45, 32, 0.16)";
-const Mono =
-  "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
+const Hairline = T.Hairline;
+const Divider = T.Divider;
+const Surface = T.SurfaceAlt;
+const Card = Console.surface;
+const Ink = Console.ink;
+const InkDim = Console.inkDim;
+const White = "#FFFFFF";
+const Line = Console.line;
+const Green = Console.green;
+const GreenTint = Console.greenTint;
+const GreenText = Console.greenInk;
+const RedTint = Console.redTint;
+const RedText = Console.redInk;
+const ShadowCard = T.ShadowCard;
+const ShadowRaised = T.ShadowRaised;
+const FocusRing = T.FocusRing;
+const Mono = T.Mono;
 
 export const DASHBOARD_STYLES = `
   .dmc-dashboard {
     display: flex;
     min-height: 100vh;
     min-height: 100dvh;
-    background: ${Colors.background};
-    color: ${Colors.text};
+    background: ${Console.bg};
+    color: ${Ink};
     font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 14px;
     line-height: 1.5;
@@ -42,14 +47,14 @@ export const DASHBOARD_STYLES = `
   }
 
   .dmc-dashboard ::selection {
-    background: ${Colors.redLight};
-    color: ${Colors.redDark};
+    background: ${RedTint};
+    color: ${RedText};
   }
 
   .dmc-sidebar {
     width: 272px;
-    background: linear-gradient(180deg, #0a1c2f 0%, ${Colors.navy} 42%, #0d2438 100%);
-    color: ${Colors.white};
+    background: linear-gradient(180deg, #0a1c2f 0%, ${Console.bgDeep} 42%, #0d2438 100%);
+    color: ${White};
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
@@ -84,8 +89,8 @@ export const DASHBOARD_STYLES = `
     width: 38px;
     height: 38px;
     border-radius: 12px;
-    background: linear-gradient(160deg, ${Colors.red} 0%, ${Colors.redDark} 100%);
-    color: ${Colors.white};
+    background: linear-gradient(160deg, ${Console.red} 0%, ${RedText} 100%);
+    color: ${White};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -130,7 +135,7 @@ export const DASHBOARD_STYLES = `
 
   .dmc-sidebar-toggle:hover {
     background: rgba(255, 255, 255, 0.14);
-    color: ${Colors.white};
+    color: ${White};
   }
 
   .dmc-sidebar-toggle:focus-visible,
@@ -184,7 +189,7 @@ export const DASHBOARD_STYLES = `
 
   .dmc-nav-item:hover {
     background: rgba(255, 255, 255, 0.07);
-    color: ${Colors.white};
+    color: ${White};
   }
 
   .dmc-nav-item:hover svg {
@@ -193,7 +198,7 @@ export const DASHBOARD_STYLES = `
 
   .dmc-nav-item-active {
     background: linear-gradient(90deg, rgba(217, 45, 32, 0.28) 0%, rgba(217, 45, 32, 0.06) 100%);
-    color: ${Colors.white};
+    color: ${White};
     font-weight: 700;
   }
 
@@ -210,7 +215,7 @@ export const DASHBOARD_STYLES = `
     bottom: 10px;
     width: 3px;
     border-radius: 0 3px 3px 0;
-    background: ${Colors.red};
+    background: ${Console.red};
   }
 
   .dmc-sidebar-closed .dmc-nav-item span,
@@ -247,7 +252,7 @@ export const DASHBOARD_STYLES = `
     width: 38px;
     height: 38px;
     border-radius: 12px;
-    background: linear-gradient(160deg, ${Colors.navyLight} 0%, #1b4a6b 100%);
+    background: linear-gradient(160deg, ${Console.blue} 0%, #1b4a6b 100%);
     border: 1px solid rgba(255, 255, 255, 0.16);
     display: flex;
     align-items: center;
@@ -260,7 +265,7 @@ export const DASHBOARD_STYLES = `
   .dmc-officer-name {
     font-size: 13px;
     font-weight: 700;
-    color: ${Colors.white};
+    color: ${White};
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -296,7 +301,7 @@ export const DASHBOARD_STYLES = `
   .dmc-logout-button:hover {
     background: rgba(217, 45, 32, 0.18);
     border-color: rgba(217, 45, 32, 0.7);
-    color: ${Colors.white};
+    color: ${White};
   }
 
   .dmc-main-content {
@@ -311,7 +316,7 @@ export const DASHBOARD_STYLES = `
     top: 0;
     z-index: 20;
     padding: 18px 32px;
-    background: rgba(255, 255, 255, 0.92);
+    background: rgba(5, 13, 26, 0.88);
     backdrop-filter: saturate(180%) blur(10px);
     border-bottom: 1px solid ${Hairline};
     display: flex;
@@ -324,14 +329,14 @@ export const DASHBOARD_STYLES = `
     font-size: 21px;
     font-weight: 800;
     letter-spacing: -0.02em;
-    color: ${Colors.text};
+    color: ${Ink};
     margin: 0 0 4px;
   }
 
   .dmc-header-title p {
     font-size: 13px;
     font-weight: 500;
-    color: ${Colors.muted};
+    color: ${InkDim};
     margin: 0;
   }
 
@@ -347,8 +352,9 @@ export const DASHBOARD_STYLES = `
     height: 40px;
     border: 2px solid transparent;
     border-radius: 12px;
-    background: ${Colors.navy};
-    color: ${Colors.white};
+    background: ${Console.surfaceAlt};
+    border-color: ${Console.line};
+    color: ${Console.ink};
     font-family: inherit;
     font-size: 14px;
     font-weight: 800;
@@ -366,8 +372,8 @@ export const DASHBOARD_STYLES = `
 
   .dmc-profile-button:hover,
   .dmc-profile-button-active {
-    background: ${Colors.red};
-    border-color: ${Colors.redDark};
+    background: ${Console.red};
+    border-color: ${RedText};
   }
 
   .dmc-profile-button:focus-visible {
@@ -391,22 +397,22 @@ export const DASHBOARD_STYLES = `
     gap: 12px;
     padding: 16px 18px;
     border-radius: 14px;
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     box-shadow: ${ShadowCard};
-    color: ${Colors.muted};
+    color: ${InkDim};
     font-size: 13px;
     font-weight: 600;
   }
 
   .dmc-loading svg {
-    color: ${Colors.red};
+    color: ${Console.red};
   }
 
   .dmc-error-card {
-    border-color: #fda29b;
+    border-color: var(--sp-red-line, #5F1D22);
     background: ${RedTint};
-    color: ${Colors.redDark};
+    color: ${RedText};
     gap: 14px;
   }
 
@@ -485,7 +491,7 @@ export const OVERVIEW_STYLES = `
     position: relative;
     padding: 20px 22px;
     border-radius: 16px;
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     box-shadow: ${ShadowCard};
     display: flex;
@@ -507,19 +513,19 @@ export const OVERVIEW_STYLES = `
     top: 0;
     bottom: 0;
     width: 4px;
-    background: ${Colors.border};
+    background: ${Line};
   }
 
   .dmc-stat-card-active::before {
-    background: linear-gradient(180deg, ${Colors.red} 0%, ${Colors.redDark} 100%);
+    background: linear-gradient(180deg, ${Console.red} 0%, ${RedText} 100%);
   }
 
   .dmc-stat-card-warning::before {
-    background: linear-gradient(180deg, ${Colors.amber} 0%, #b54708 100%);
+    background: linear-gradient(180deg, ${Console.amber} 0%, #B45309 100%);
   }
 
   .dmc-stat-card-info::before {
-    background: linear-gradient(180deg, ${Colors.blue} 0%, ${Colors.blueDark} 100%);
+    background: linear-gradient(180deg, ${Console.blue} 0%, ${Console.blueInk} 100%);
   }
 
   .dmc-stat-card-success::before {
@@ -538,27 +544,27 @@ export const OVERVIEW_STYLES = `
   }
 
   .dmc-stat-card-active .dmc-stat-icon {
-    background: ${Colors.redLight};
-    color: ${Colors.redDark};
-    border-color: #fecaaf;
+    background: ${RedTint};
+    color: ${RedText};
+    border-color: #5F3A1D;
   }
 
   .dmc-stat-card-success .dmc-stat-icon {
     background: ${GreenTint};
     color: ${GreenText};
-    border-color: #a7f3c0;
+    border-color: var(--sp-green-line, #174E2E);
   }
 
   .dmc-stat-card-info .dmc-stat-icon {
-    background: ${Colors.blueLight};
-    color: ${Colors.blueDark};
-    border-color: #b5d8fb;
+    background: ${Console.blueTint};
+    color: ${Console.blueInk};
+    border-color: var(--sp-blue-line, #1E3A66);
   }
 
   .dmc-stat-card-warning .dmc-stat-icon {
-    background: ${Colors.amberLight};
-    color: ${Colors.amberText};
-    border-color: #fdcf5f;
+    background: ${Console.amberTint};
+    color: ${Console.amberInk};
+    border-color: var(--sp-amber-line, #5C4310);
   }
 
   .dmc-stat-content {
@@ -566,19 +572,22 @@ export const OVERVIEW_STYLES = `
   }
 
   .dmc-stat-value {
-    font-size: 28px;
+    font-family: ${Mono};
+    font-size: 27px;
     line-height: 1.1;
-    font-weight: 800;
-    color: ${Colors.text};
-    letter-spacing: -0.03em;
+    font-weight: 700;
+    color: ${Ink};
+    letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
   }
 
   .dmc-stat-label {
-    font-size: 12px;
-    color: ${Colors.muted};
-    font-weight: 600;
-    margin-top: 5px;
+    font-size: 11px;
+    color: ${Console.inkFaint};
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    margin-top: 6px;
     line-height: 1.35;
   }
 
@@ -590,7 +599,7 @@ export const OVERVIEW_STYLES = `
   }
 
   .dmc-panel {
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     border-radius: 16px;
     padding: 22px 24px;
@@ -603,18 +612,18 @@ export const OVERVIEW_STYLES = `
     font-size: 15px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
     border-bottom: 1px solid ${Divider};
   }
 
   .dmc-empty {
     margin: 0;
     padding: 18px;
-    border: 1px dashed ${Colors.border};
+    border: 1px dashed ${Line};
     border-radius: 12px;
     background: ${Surface};
     font-size: 13px;
-    color: ${Colors.muted};
+    color: ${InkDim};
     line-height: 1.6;
   }
 
@@ -637,8 +646,8 @@ export const OVERVIEW_STYLES = `
   }
 
   .dmc-action-row:hover {
-    background: ${Colors.white};
-    border-color: ${Colors.border};
+    background: ${Card};
+    border-color: ${Line};
     box-shadow: ${ShadowCard};
   }
 
@@ -647,14 +656,14 @@ export const OVERVIEW_STYLES = `
     font-size: 13px;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
   }
 
   .dmc-action-row p {
     margin: 0;
     font-size: 12px;
     font-weight: 500;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .dmc-action-button {
@@ -663,10 +672,10 @@ export const OVERVIEW_STYLES = `
     gap: 7px;
     height: 38px;
     padding: 0 15px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     border-radius: 10px;
-    background: ${Colors.white};
-    color: ${Colors.text};
+    background: ${Card};
+    color: ${Ink};
     font-family: inherit;
     font-size: 13px;
     font-weight: 700;
@@ -678,8 +687,8 @@ export const OVERVIEW_STYLES = `
   }
 
   .dmc-action-button:hover:not(:disabled) {
-    border-color: ${Colors.navy};
-    color: ${Colors.navy};
+    border-color: ${Console.blueSoft};
+    color: ${Console.blueInk};
     box-shadow: ${ShadowCard};
   }
 
@@ -689,7 +698,7 @@ export const OVERVIEW_STYLES = `
 
   .dmc-action-button:focus-visible {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     box-shadow: ${FocusRing};
   }
 
@@ -699,31 +708,31 @@ export const OVERVIEW_STYLES = `
   }
 
   .dmc-action-button-primary {
-    background: ${Colors.red};
-    border-color: ${Colors.red};
-    color: ${Colors.white};
+    background: ${Console.red};
+    border-color: ${Console.red};
+    color: ${White};
     box-shadow: 0 1px 3px rgba(217, 45, 32, 0.32);
   }
 
   .dmc-action-button-primary:hover:not(:disabled) {
-    background: ${Colors.redDark};
-    border-color: ${Colors.redDark};
-    color: ${Colors.white};
+    background: ${RedText};
+    border-color: ${RedText};
+    color: ${White};
     box-shadow: 0 4px 12px -4px rgba(180, 35, 24, 0.5);
   }
 
   .dmc-action-button-standdown,
   .dmc-action-button-delete {
-    color: ${Colors.redDark};
-    border-color: #fda29b;
+    color: ${RedText};
+    border-color: var(--sp-red-line, #5F1D22);
     background: ${RedTint};
   }
 
   .dmc-action-button-standdown:hover:not(:disabled),
   .dmc-action-button-delete:hover:not(:disabled) {
-    background: ${Colors.redLight};
-    border-color: ${Colors.red};
-    color: ${Colors.redDark};
+    background: ${RedTint};
+    border-color: ${Console.red};
+    color: ${RedText};
   }
 
   .dmc-coverage-list {
@@ -743,7 +752,7 @@ export const OVERVIEW_STYLES = `
     padding: 8px 10px;
     border-radius: 10px;
     font-size: 12px;
-    color: ${Colors.text};
+    color: ${Ink};
     transition: background 140ms ease;
   }
 
@@ -762,7 +771,7 @@ export const OVERVIEW_STYLES = `
     height: 8px;
     border-radius: 999px;
     background: ${Divider};
-    box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.06);
+    box-shadow: inset 0 1px 2px rgba(2, 8, 20, 0.6);
     overflow: hidden;
   }
 
@@ -770,13 +779,13 @@ export const OVERVIEW_STYLES = `
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, ${Colors.blue} 0%, ${Colors.blueDark} 100%);
+    background: linear-gradient(90deg, ${Console.blue} 0%, ${Console.blueInk} 100%);
     transition: width 520ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .dmc-coverage-count {
     text-align: right;
-    color: ${Colors.muted};
+    color: ${InkDim};
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
@@ -791,7 +800,7 @@ export const OVERVIEW_STYLES = `
     position: relative;
     padding: 14px 16px 14px 18px;
     border-radius: 14px;
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     display: flex;
     align-items: center;
@@ -801,7 +810,7 @@ export const OVERVIEW_STYLES = `
   }
 
   .dmc-alert-item:hover {
-    border-color: ${Colors.border};
+    border-color: ${Line};
     box-shadow: ${ShadowCard};
   }
 
@@ -812,15 +821,15 @@ export const OVERVIEW_STYLES = `
     top: 0;
     bottom: 0;
     width: 3px;
-    background: ${Colors.border};
+    background: ${Line};
   }
 
   .dmc-alert-item.dmc-alert-critical::before {
-    background: ${Colors.red};
+    background: ${Console.red};
   }
 
   .dmc-alert-item.dmc-alert-high::before {
-    background: ${Colors.amber};
+    background: ${Console.amber};
   }
 
   .dmc-alert-item.dmc-alert-medium::before {
@@ -852,23 +861,23 @@ export const OVERVIEW_STYLES = `
 
   .dmc-alert-item.dmc-alert-critical .dmc-alert-status,
   .dmc-history-row.dmc-alert-critical .dmc-alert-status {
-    background: ${Colors.redLight};
-    color: ${Colors.redDark};
-    border-color: #fda29b;
+    background: ${RedTint};
+    color: ${RedText};
+    border-color: var(--sp-red-line, #5F1D22);
   }
 
   .dmc-alert-item.dmc-alert-high .dmc-alert-status,
   .dmc-history-row.dmc-alert-high .dmc-alert-status {
-    background: ${Colors.amberLight};
-    color: ${Colors.amberText};
-    border-color: #fdcf5f;
+    background: ${Console.amberTint};
+    color: ${Console.amberInk};
+    border-color: var(--sp-amber-line, #5C4310);
   }
 
   .dmc-alert-item.dmc-alert-medium .dmc-alert-status,
   .dmc-history-row.dmc-alert-medium .dmc-alert-status {
     background: ${GreenTint};
     color: ${GreenText};
-    border-color: #a7f3c0;
+    border-color: var(--sp-green-line, #174E2E);
   }
 
   .dmc-alert-details {
@@ -880,17 +889,22 @@ export const OVERVIEW_STYLES = `
     font-size: 13.5px;
     font-weight: 700;
     letter-spacing: -0.01em;
-    color: ${Colors.text};
+    color: ${Ink};
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .dmc-alert-time {
+    font-family: ${Mono};
     font-size: 11.5px;
     font-weight: 600;
-    color: ${Colors.muted};
+    color: ${Console.cyan};
     white-space: nowrap;
+  }
+
+  .dmc-draft-list {
+    margin-top: 14px;
   }
 
   @media (max-width: 720px) {
@@ -929,11 +943,11 @@ export const HISTORY_STYLES = `
     margin: 0;
     font-size: 13px;
     font-weight: 500;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .dmc-history-card {
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     border-radius: 16px;
     box-shadow: ${ShadowCard};
@@ -942,7 +956,7 @@ export const HISTORY_STYLES = `
   }
 
   .dmc-history-card:hover {
-    border-color: ${Colors.border};
+    border-color: ${Line};
     box-shadow: ${ShadowRaised};
   }
 
@@ -968,15 +982,15 @@ export const HISTORY_STYLES = `
     top: 0;
     bottom: 0;
     width: 3px;
-    background: ${Colors.border};
+    background: ${Line};
   }
 
   .dmc-history-row.dmc-alert-critical::before {
-    background: ${Colors.red};
+    background: ${Console.red};
   }
 
   .dmc-history-row.dmc-alert-high::before {
-    background: ${Colors.amber};
+    background: ${Console.amber};
   }
 
   .dmc-history-row.dmc-alert-medium::before {
@@ -1015,7 +1029,7 @@ export const HISTORY_STYLES = `
   }
 
   .dmc-detail-block {
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     border-radius: 12px;
     padding: 14px 16px;
@@ -1027,14 +1041,14 @@ export const HISTORY_STYLES = `
     font-weight: 800;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .dmc-detail-block p {
     margin: 0;
     font-size: 13px;
     font-weight: 500;
-    color: ${Colors.text};
+    color: ${Ink};
     line-height: 1.6;
   }
 
@@ -1049,9 +1063,9 @@ export const HISTORY_STYLES = `
     padding: 10px 13px;
     border-radius: 0 10px 10px 0;
     border: 1px solid ${Hairline};
-    border-left: 3px solid ${Colors.border};
+    border-left: 3px solid ${Line};
     background: ${Surface};
-    color: ${Colors.text};
+    color: ${Ink};
     font-size: 13px;
     font-weight: 600;
     line-height: 1.6;
@@ -1060,11 +1074,11 @@ export const HISTORY_STYLES = `
   }
 
   .dmc-language-en .dmc-message {
-    border-left-color: ${Colors.blue};
+    border-left-color: ${Console.blue};
   }
 
   .dmc-language-si .dmc-message {
-    border-left-color: ${Colors.amber};
+    border-left-color: ${Console.amber};
   }
 
   .dmc-language-ta .dmc-message {
@@ -1083,20 +1097,20 @@ export const HISTORY_STYLES = `
     font-weight: 800;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .dmc-extend-row select,
   .dmc-pin-input {
     height: 38px;
     padding: 0 12px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     border-radius: 10px;
-    background: ${Colors.white};
+    background: ${Card};
     font-family: inherit;
     font-size: 13px;
     font-weight: 700;
-    color: ${Colors.text};
+    color: ${Ink};
     transition: border-color 140ms ease, box-shadow 140ms ease;
   }
 
@@ -1109,7 +1123,7 @@ export const HISTORY_STYLES = `
   .dmc-extend-row select:focus-visible,
   .dmc-pin-input:focus-visible {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     box-shadow: ${FocusRing};
   }
 
@@ -1121,7 +1135,7 @@ export const HISTORY_STYLES = `
     font-weight: 800;
     letter-spacing: 0.07em;
     text-transform: uppercase;
-    color: ${Colors.navy};
+    color: ${Console.blueInk};
   }
 
   .dmc-log-error {
@@ -1129,7 +1143,7 @@ export const HISTORY_STYLES = `
     font-weight: 600;
     letter-spacing: 0;
     text-transform: none;
-    color: ${Colors.redDark};
+    color: ${RedText};
     overflow-wrap: anywhere;
   }
 
@@ -1144,7 +1158,7 @@ export const HISTORY_STYLES = `
     font-size: 11px;
     font-weight: 600;
     line-height: 1.5;
-    color: ${Colors.muted};
+    color: ${InkDim};
     overflow-wrap: anywhere;
   }
 
