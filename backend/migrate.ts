@@ -46,7 +46,7 @@ async function migrate() {
       "kaveesha-rescue_dispatch.sql",
       "kaveesha-district_incident_acceptance.sql",
       "dildhara-relief_operations.sql",
-      "dildhara-relief_dispatch_tracking.sql"
+      "dildhara-relief_dispatch_tracking.sql",
       "kaveesha-incident_closure.sql",
       "kaveesha-shelters.sql",
       "kaveesha-shelter_managers.sql",
