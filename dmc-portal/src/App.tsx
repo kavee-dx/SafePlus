@@ -17,7 +17,8 @@ import AdminDashboard from "./pages/amasha-AdminDashboard";
 import DmcOfficerDashboard from "./pages/dushani-DmcOfficerDashboard";
 import KaveeshaDistrictOfficerDashboard from "./pages/kaveesha-DistrictOfficerDashboard";
 import KaveeshaShelterDashboard from "./pages/kaveesha-ShelterDashboard";
-
+import CoordinatorDashboardPage from "./pages/dildhara-CoordinatorDashboardPage";
+import ResourceRequestsPage from "./pages/dildhara-ResourceRequestsPage";
 import PortalLayout, {
   type PortalPage,
 } from "./pages/dildhara-PortalLayout";
@@ -556,7 +557,20 @@ export default function App() {
         onNavigate={setPortalPage}
         onSignOut={handlePortalSignOut}
       >
-        {portalPage === "dashboard" ? (
+        {portalPage === "resource-requests" ? (
+          <ResourceRequestsPage
+            token={portalSession.token}
+            onBack={() => setPortalPage("dashboard")}
+            onSessionExpired={handlePortalSignOut}
+          />
+        ) : portalPage === "dashboard" &&
+          portalSession.account.role === "COORDINATOR" ? (
+          <CoordinatorDashboardPage
+            account={portalSession.account}
+            token={portalSession.token}
+            onOpenRequests={() => setPortalPage("resource-requests")}
+          />
+        ) : portalPage === "dashboard" ? (
           <DashboardPage
             account={portalSession.account}
           />

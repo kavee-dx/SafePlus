@@ -3,6 +3,7 @@ import {
   ChannelType,
   type DisasterWarning,
 } from "../models/disasterWarning";
+import { alertLevelLabel } from "./dushani-smsGatewayService";
 
 export interface AlertRecipient {
   userId: string;
@@ -54,14 +55,6 @@ export interface DispatchOutcome {
 export const PUSH_RECEIPT_THRESHOLD = 0.4;
 export const DEFAULT_RECEIPT_WINDOW_MS = 15_000;
 
-type Transport = (payload: Record<string, unknown>) => Promise<{ accepted: number }>;
-
-interface ChannelOptions {
-  endpoint?: string;
-  transport?: Transport;
-  kind: "push" | "sms" | "siren";
-}
-
 async function postGateway(
   endpoint: string,
   body: Record<string, unknown>
@@ -90,149 +83,294 @@ function buildMessage(request: DispatchRequest): string {
 }
 
 /**
- * One channel per delivery mechanism. Every adapter converts its own failure
- * into a ChannelResult instead of throwing, so a dead siren relay can never
+ * Shared outcome shape: a gateway that accepted nothing is a failed channel,
+ * a gateway that accepted part of the batch is partial, and a deployment
+ * without any gateway at all is reported as simulated rather than green.
+ */
+function channelOutcome(args: {
+  targetCount: number;
+  accepted: number;
+  startedAt: number;
+  notes?: string[];
+  simulated?: boolean;
+}): ChannelResult {
+  const { targetCount, accepted, startedAt, simulated = false } = args;
+  const notes = (args.notes ?? []).filter(Boolean);
+  const elapsedMs = Date.now() - startedAt;
+  const detail = notes.slice(0, 3).join("; ") || undefined;
+
+  if (simulated) {
+    return {
+      status: BroadcastStatus.SUCCESS,
+      targetCount,
+      deliveryCount: targetCount,
+      failureCount: 0,
+      elapsedMs,
+      errorMessage: detail,
+      simulated: true,
+    };
+  }
+
+  const delivered = Math.min(accepted, targetCount);
+
+  if (delivered === 0) {
+    return {
+      status: BroadcastStatus.FAILED,
+      targetCount,
+      deliveryCount: 0,
+      failureCount: targetCount,
+      elapsedMs,
+      errorMessage: detail ?? "Gateway accepted none of the queued deliveries.",
+      simulated: false,
+    };
+  }
+
+  return {
+    status:
+      delivered === targetCount ? BroadcastStatus.SUCCESS : BroadcastStatus.PARTIAL,
+    targetCount,
+    deliveryCount: delivered,
+    failureCount: targetCount - delivered,
+    elapsedMs,
+    errorMessage: detail,
+    simulated: false,
+  };
+}
+
+function channelCrash(
+  request: DispatchRequest,
+  startedAt: number,
+  error: unknown,
+  label: string
+): ChannelResult {
+  const targetCount = request.recipients.length;
+
+  return {
+    status: BroadcastStatus.FAILED,
+    targetCount,
+    deliveryCount: 0,
+    failureCount: targetCount,
+    elapsedMs: Date.now() - startedAt,
+    errorMessage: error instanceof Error ? error.message : `${label} unavailable`,
+    simulated: false,
+  };
+}
+
+/**
+ * Siren relay: one activation call per district. Every adapter converts its own
+ * failure into a ChannelResult instead of throwing, so a dead relay can never
  * abort the push that saves lives.
  */
-class GatewayChannel implements DisseminationChannel {
-  constructor(
-    readonly channelType: ChannelType,
-    private readonly options: ChannelOptions
-  ) {}
+export class SirenRelayAdapter implements DisseminationChannel {
+  readonly channelType = ChannelType.SIREN;
+
+  constructor(private readonly endpoint = process.env.SIREN_RELAY_URL) {}
 
   async send(request: DispatchRequest): Promise<ChannelResult> {
     const startedAt = Date.now();
-    const cohort = this.cohort(request);
+    const targetCount = request.recipients.length;
+
+    if (!this.endpoint) {
+      return channelOutcome({
+        targetCount,
+        accepted: targetCount,
+        startedAt,
+        notes: [
+          "Simulated: no siren relay is configured (SIREN_RELAY_URL), so no station sounded.",
+        ],
+        simulated: true,
+      });
+    }
+
+    try {
+      const outcome = await postGateway(this.endpoint, {
+        stations: request.targetDistrict,
+        hazardType: request.hazardType,
+        severityLevel: request.severityLevel,
+        alertId: request.warningId,
+      });
+
+      return channelOutcome({ targetCount, accepted: outcome.accepted, startedAt });
+    } catch (error) {
+      return channelCrash(request, startedAt, error, "Siren relay");
+    }
+  }
+}
+
+/**
+ * Push reaches the handset through Expo's push service, which needs no
+ * credentials of its own - the citizen app registers an Expo push token when
+ * the user allows notifications. `PUSH_GATEWAY_URL` overrides it for
+ * deployments that front their own FCM/APNs bridge.
+ */
+const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
+const EXPO_PUSH_BATCH_LIMIT = 100;
+const EXPO_TOKEN_SHAPE = /^(ExponentPushToken|ExpoPushToken)\[/;
+
+interface ExpoPushMessage {
+  to: string;
+  title: string;
+  body: string;
+  sound: "default";
+  priority: "default" | "high";
+  channelId: string;
+  data: Record<string, string>;
+}
+
+interface ExpoPushTicket {
+  status: "ok" | "error";
+  message?: string;
+}
+
+function isExpoPushToken(token: string | undefined): boolean {
+  if (!token) {
+    return false;
+  }
+
+  return EXPO_TOKEN_SHAPE.test(token.replace(/^[{"']+/, ""));
+}
+
+async function postExpoPush(
+  messages: ExpoPushMessage[]
+): Promise<{ accepted: number; errors: string[] }> {
+  let accepted = 0;
+  const errors: string[] = [];
+
+  for (let index = 0; index < messages.length; index += EXPO_PUSH_BATCH_LIMIT) {
+    const batch = messages.slice(index, index + EXPO_PUSH_BATCH_LIMIT);
+    const response = await fetch(EXPO_PUSH_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(batch),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Expo push service responded with ${response.status}`);
+    }
+
+    const parsed = (await response.json()) as {
+      data?: ExpoPushTicket[];
+      errors?: { message?: string }[];
+    };
+
+    if (parsed.errors?.length) {
+      errors.push(...parsed.errors.map((item) => item.message ?? "Push rejected."));
+    }
+
+    for (const ticket of parsed.data ?? []) {
+      if (ticket.status === "ok") {
+        accepted += 1;
+      } else if (ticket.message) {
+        errors.push(ticket.message);
+      }
+    }
+  }
+
+  return { accepted, errors };
+}
+
+function pushMessage(
+  request: DispatchRequest,
+  token: string
+): ExpoPushMessage {
+  const critical =
+    request.severityLevel === "CRITICAL" || request.severityLevel === "HIGH";
+
+  const message = buildMessage(request);
+
+  return {
+    to: token,
+    title: `DMC alert - ${alertLevelLabel(request.severityLevel)}`,
+    body: message,
+    sound: "default",
+    priority: critical ? "high" : "default",
+    channelId: "dmc-alerts",
+    data: {
+      warningId: request.warningId,
+      hazardType: request.hazardType,
+      severityLevel: request.severityLevel,
+      targetDistrict: request.targetDistrict,
+      englishMessage: request.payload.englishText,
+      sinhalaMessage: request.payload.sinhalaText,
+      tamilMessage: request.payload.tamilText,
+      safetyInstructions: request.safetyInstructions || "",
+    },
+  };
+}
+
+export class PushAlertChannel implements DisseminationChannel {
+  readonly channelType = ChannelType.PUSH;
+
+  constructor(private readonly endpoint = process.env.PUSH_GATEWAY_URL) {}
+
+  async send(request: DispatchRequest): Promise<ChannelResult> {
+    const startedAt = Date.now();
+    const cohort = request.recipients.filter((recipient) =>
+      Boolean(recipient.deviceToken)
+    );
     const targetCount = cohort.length;
 
     if (targetCount === 0) {
       return {
-        status: BroadcastStatus.FAILED,
+        status: BroadcastStatus.SKIPPED,
         targetCount: 0,
         deliveryCount: 0,
         failureCount: 0,
         elapsedMs: Date.now() - startedAt,
-        errorMessage: `No ${this.options.kind} targets in ${request.targetDistrict} District.`,
+        errorMessage: `No phone in ${request.targetDistrict} District has notifications enabled, so no push notification was sent.`,
         simulated: false,
       };
     }
 
-    try {
-      const outcome = await this.deliver(request, cohort);
+    const message = buildMessage(request);
 
-      if (outcome.simulated) {
-        return {
-          status: BroadcastStatus.SUCCESS,
+    try {
+      if (this.endpoint) {
+        const outcome = await postGateway(this.endpoint, {
+          destinations: cohort.map((recipient) => recipient.deviceToken),
+          message,
+          alertId: request.warningId,
+        });
+
+        return channelOutcome({
           targetCount,
-          deliveryCount: targetCount,
-          failureCount: 0,
-          elapsedMs: Date.now() - startedAt,
-          simulated: true,
-        };
+          accepted: outcome.accepted,
+          startedAt,
+        });
       }
 
-      const delivered = Math.min(outcome.accepted, targetCount);
+      const reachable = cohort.filter((recipient) =>
+        isExpoPushToken(recipient.deviceToken)
+      );
 
-      if (delivered === 0) {
+      if (reachable.length === 0) {
         return {
           status: BroadcastStatus.FAILED,
           targetCount,
           deliveryCount: 0,
           failureCount: targetCount,
           elapsedMs: Date.now() - startedAt,
-          errorMessage: "Gateway accepted none of the queued deliveries.",
+          errorMessage:
+            "Stored device tokens are not Expo push tokens. Set PUSH_GATEWAY_URL for a different provider.",
           simulated: false,
         };
       }
 
-      return {
-        status:
-          delivered === targetCount
-            ? BroadcastStatus.SUCCESS
-            : BroadcastStatus.PARTIAL,
+      const { accepted, errors } = await postExpoPush(
+        reachable.map((recipient) =>
+          pushMessage(request, recipient.deviceToken as string)
+        )
+      );
+
+      return channelOutcome({
         targetCount,
-        deliveryCount: delivered,
-        failureCount: targetCount - delivered,
-        elapsedMs: Date.now() - startedAt,
-        simulated: false,
-      };
+        accepted,
+        startedAt,
+        notes: errors,
+      });
     } catch (error) {
-      return {
-        status: BroadcastStatus.FAILED,
-        targetCount,
-        deliveryCount: 0,
-        failureCount: targetCount,
-        elapsedMs: Date.now() - startedAt,
-        errorMessage: error instanceof Error ? error.message : "Channel unavailable",
-        simulated: false,
-      };
+      return channelCrash(request, startedAt, error, "Push gateway");
     }
-  }
-
-  private cohort(request: DispatchRequest): AlertRecipient[] {
-    if (this.channelType === ChannelType.PUSH) {
-      return request.recipients.filter((recipient) => Boolean(recipient.deviceToken));
-    }
-
-    if (this.channelType === ChannelType.SMS) {
-      return request.recipients.filter((recipient) => Boolean(recipient.phoneNumber));
-    }
-
-    return request.recipients;
-  }
-
-  private async deliver(
-    request: DispatchRequest,
-    cohort: AlertRecipient[]
-  ): Promise<{ accepted: number; simulated: boolean }> {
-    const message = buildMessage(request);
-
-    const body =
-      this.channelType === ChannelType.SIREN
-        ? {
-            stations: request.targetDistrict,
-            hazardType: request.hazardType,
-            severityLevel: request.severityLevel,
-            alertId: request.warningId,
-          }
-        : {
-            destinations:
-              this.channelType === ChannelType.PUSH
-                ? cohort.map((recipient) => recipient.deviceToken)
-                : cohort.map((recipient) => recipient.phoneNumber),
-            message,
-            alertId: request.warningId,
-          };
-
-    if (this.options.transport) {
-      const outcome = await this.options.transport(body);
-
-      return { accepted: outcome.accepted, simulated: false };
-    }
-
-    const endpoint = this.options.endpoint;
-
-    if (!endpoint) {
-      // Nothing is wired up in this environment: report a simulated sweep so the
-      // officer sees the flow without the audit trail pretending to be real.
-      return { accepted: cohort.length, simulated: true };
-    }
-
-    const outcome = await postGateway(endpoint, body);
-
-    return { accepted: outcome.accepted, simulated: false };
-  }
-}
-
-export class PushNotificationAdapter extends GatewayChannel {
-  constructor(endpoint = process.env.PUSH_GATEWAY_URL, transport?: Transport) {
-    super(ChannelType.PUSH, { kind: "push", endpoint, transport });
-  }
-}
-
-export class SirenRelayAdapter extends GatewayChannel {
-  constructor(endpoint = process.env.SIREN_RELAY_URL, transport?: Transport) {
-    super(ChannelType.SIREN, { kind: "siren", endpoint, transport });
   }
 }
 

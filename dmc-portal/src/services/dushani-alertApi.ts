@@ -46,6 +46,26 @@ export class AlertApiError extends Error {
   }
 }
 
+/**
+ * A PIN failure has to be explained inside the dialog - a wrong guess and a
+ * missing PIN need different next steps for the officer.
+ */
+export function pinProblem(failure: unknown): string {
+  if (failure instanceof AlertApiError) {
+    if (failure.status === 428) {
+      return "This account has no clearance PIN yet. Set one from the dashboard before changing a live warning.";
+    }
+
+    if (failure.status === 401) {
+      return "Incorrect clearance PIN. The attempt was recorded in the audit log.";
+    }
+
+    return failure.message;
+  }
+
+  return failure instanceof Error ? failure.message : "Something went wrong.";
+}
+
 function unwrap(error: unknown): never {
   if (error instanceof AxiosError) {
     const data = error.response?.data as
@@ -239,15 +259,39 @@ export async function broadcastWarning(
 }
 
 export async function standDownWarning(
-  warningId: string
+  warningId: string,
+  securityPin: string
 ): Promise<DisasterWarning> {
   const response = await alertApi
     .post<{ message: string; warning: DisasterWarning }>(
-      `/warnings/${encodeURIComponent(warningId)}/stand-down`
+      `/warnings/${encodeURIComponent(warningId)}/stand-down`,
+      { securityPin }
     )
     .catch(unwrap);
 
   return response.data.warning;
+}
+
+/** The danger has not passed yet, so buy the warning more time. */
+export async function extendWarningExpiry(
+  warningId: string,
+  extendByHours: number,
+  securityPin: string
+): Promise<DisasterWarning> {
+  const response = await alertApi
+    .post<{ message: string; warning: DisasterWarning }>(
+      `/warnings/${encodeURIComponent(warningId)}/extend-expiry`,
+      { extendByHours, securityPin }
+    )
+    .catch(unwrap);
+
+  return response.data.warning;
+}
+
+export async function deleteWarning(warningId: string): Promise<void> {
+  await alertApi
+    .delete(`/warnings/${encodeURIComponent(warningId)}`)
+    .catch(unwrap);
 }
 
 export async function fetchWarnings(): Promise<DisasterWarning[]> {

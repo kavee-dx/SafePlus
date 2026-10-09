@@ -5,6 +5,7 @@ import ReportQueueView from "./amasha-ReportQueueView";
 import ReportDetailView from "./amasha-ReportDetailView";
 import ReportVerifyView from "./amasha-ReportVerifyView";
 import { REPORT_STYLES } from "./amasha-reportUi";
+import { DATA_STYLES } from "../styles/dushani-dataStyles";
 
 interface ReportCenterProps {
   onIssueWarning: (reportId: string) => void;
@@ -29,7 +30,7 @@ export default function ReportCenter({ onIssueWarning }: ReportCenterProps) {
   };
 
   return (
-    <div className="rc">
+    <div className="rc dq-console">
       {view === "list" && (
         <ReportQueueView
           key={listKey}
@@ -62,6 +63,7 @@ export default function ReportCenter({ onIssueWarning }: ReportCenterProps) {
         />
       )}
 
+      <style>{DATA_STYLES}</style>
       <style>{REPORT_STYLES}</style>
     </div>
   );

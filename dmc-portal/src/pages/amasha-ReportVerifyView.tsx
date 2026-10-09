@@ -94,7 +94,7 @@ export default function ReportVerifyView({
         <button type="button" className="rc-back" onClick={onBack}>
           <ArrowLeft size={15} /> Back to report
         </button>
-        <span className="rc-report-id">{report.reportId}</span>
+        <span className="sp-pill sp-pill-plain sp-mono">{report.reportId}</span>
       </div>
 
       <div className="rc-columns">
@@ -109,33 +109,37 @@ export default function ReportVerifyView({
               {label(report.severityLevel)}
             </span>
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>
-              {label(report.hazardType)} · {report.locationDistrict}
+              {label(report.hazardType)} reported in {report.locationDistrict}
             </h3>
           </div>
 
-          <p className="rc-description">{report.description}</p>
+          <div className="sp-stack" style={{ marginBottom: 16 }}>
+            <span className="rc-field-label">Citizen&rsquo;s report</span>
+            <div className="sp-block">{report.description}</div>
+          </div>
 
-          <div className="rc-grid" style={{ marginBottom: 16 }}>
-            <div className="rc-field">
-              <span className="rc-field-label">Observed</span>
-              <span className="rc-field-value">{formatDateTime(report.observedAt)}</span>
+          <div className="sp-list" style={{ marginBottom: 16 }}>
+            <div className="sp-row">
+              <span className="sp-label">Observed</span>
+              <span className="sp-value">{formatDateTime(report.observedAt)}</span>
             </div>
-            <div className="rc-field">
-              <span className="rc-field-label">Reporter</span>
-              <span className="rc-field-value">
-                {report.reporterName ?? "Anonymous"}
-                {report.reporterPhone ? ` · ${report.reporterPhone}` : ""}
-              </span>
+            <div className="sp-row">
+              <span className="sp-label">Reported by</span>
+              <span className="sp-value">{report.reporterName ?? "Anonymous"}</span>
             </div>
-            <div className="rc-field">
-              <span className="rc-field-label">Landmark</span>
-              <span className="rc-field-value">{report.landmark ?? "—"}</span>
+            <div className="sp-row">
+              <span className="sp-label">Contact</span>
+              <span className="sp-value sp-mono">{report.reporterPhone ?? "—"}</span>
             </div>
-            <div className="rc-field">
-              <span className="rc-field-label">GPS</span>
-              <span className="rc-field-value">
+            <div className="sp-row">
+              <span className="sp-label">Landmark</span>
+              <span className="sp-value">{report.landmark ?? "—"}</span>
+            </div>
+            <div className="sp-row">
+              <span className="sp-label">GPS coordinates</span>
+              <span className="sp-value sp-mono">
                 {report.locationLat !== undefined && report.locationLng !== undefined
-                  ? `${report.locationLat.toFixed(5)}, ${report.locationLng.toFixed(5)}`
+                  ? report.locationLat.toFixed(5) + ", " + report.locationLng.toFixed(5)
                   : "Not attached"}
               </span>
             </div>
@@ -143,10 +147,10 @@ export default function ReportVerifyView({
 
           <h2>Evidence</h2>
           {report.attachments.length === 0 ? (
-            <p className="rc-empty">
+            <div className="sp-empty">
               No photo or video attached (A1). Base the decision on the description,
               location and a call-back to the reporter.
-            </p>
+            </div>
           ) : (
             <div className="rc-evidence">
               {report.attachments.map((attachment) => (

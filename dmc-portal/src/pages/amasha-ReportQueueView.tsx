@@ -3,10 +3,8 @@ import {
   AlertTriangle,
   Inbox,
   Loader2,
-  MapPin,
   Megaphone,
   RefreshCw,
-  Users,
 } from "lucide-react";
 
 import {
@@ -136,13 +134,13 @@ export default function ReportQueueView({
       )}
 
       {loading && (
-        <div className="rc-state">
+        <div className="sp-empty" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Loader2 className="rc-spin" size={18} /> Loading reports…
         </div>
       )}
 
       {!loading && reports.length === 0 && (
-        <div className="rc-state">
+        <div className="sp-empty" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Inbox size={20} />
           {tab === "pending"
             ? "No citizen reports are waiting for verification."
@@ -172,33 +170,65 @@ export default function ReportQueueView({
                       {label(report.hazardType)} reported in {report.locationDistrict}
                     </h3>
                   </div>
-                  <span className={`rc-status ${STATUS_META[report.status].className}`}>
-                    {STATUS_META[report.status].label}
-                  </span>
+                  <div className="sp-badges" style={{ justifyContent: "flex-end" }}>
+                    <span className="sp-pill sp-pill-plain sp-mono">{report.reportId}</span>
+                    <span className={`rc-status ${STATUS_META[report.status].className}`}>
+                      {STATUS_META[report.status].label}
+                    </span>
+                  </div>
                 </header>
 
-                <p className="rc-description">{report.description}</p>
+                <div className="sp-stack" style={{ marginBottom: 12 }}>
+                  <span className="rc-field-label">Citizen&rsquo;s report</span>
+                  <div className="sp-block">{report.description}</div>
+                </div>
 
-                <div className="rc-meta">
-                  <span>{report.reportId}</span>
-                  <span>
-                    <Users size={13} /> {report.reporterName ?? "Anonymous citizen"}
-                  </span>
+                <div className="sp-list">
+                  <div className="sp-row">
+                    <span className="sp-label">Reported by</span>
+                    <span className="sp-value">{report.reporterName ?? "Anonymous citizen"}</span>
+                  </div>
+                  <div className="sp-row">
+                    <span className="sp-label">Contact</span>
+                    <span className="sp-value sp-mono">{report.reporterPhone ?? "—"}</span>
+                  </div>
                   {report.locationLat !== undefined && report.locationLng !== undefined && (
-                    <span>
-                      <MapPin size={13} /> {report.locationLat.toFixed(4)},{" "}
-                      {report.locationLng.toFixed(4)}
-                    </span>
+                    <div className="sp-row">
+                      <span className="sp-label">Coordinates</span>
+                      <span className="sp-value sp-mono">
+                        {report.locationLat.toFixed(4)},{" "}
+                        {report.locationLng.toFixed(4)}
+                      </span>
+                    </div>
                   )}
-                  {report.immediateDanger && (
-                    <span className="rc-danger">
-                      <AlertTriangle size={13} /> Immediate danger
+                  <div className="sp-row">
+                    <span className="sp-label">People affected</span>
+                    <span className="sp-value">
+                      {report.affectedPopulation ? `~${report.affectedPopulation}` : "—"}
                     </span>
+                  </div>
+                  <div className="sp-row">
+                    <span className="sp-label">Received</span>
+                    <span className="sp-value">{relativeTime(report.createdAt)}</span>
+                  </div>
+                  <div className="sp-row">
+                    <span className="sp-label">Warnings issued</span>
+                    <span className="sp-value">{report.warningCount ?? 0}</span>
+                  </div>
+                  {report.immediateDanger && (
+                    <div className="sp-row">
+                      <span className="sp-label">Danger flag</span>
+                      <span className="sp-value">
+                        <span className="sp-pill sp-pill-red">Immediate danger</span>
+                      </span>
+                    </div>
                   )}
                   {report.attachments.length > 0 && (
-                    <span>{report.attachments.length} evidence</span>
+                    <div className="sp-row">
+                      <span className="sp-label">Evidence</span>
+                      <span className="sp-value">{report.attachments.length} attached</span>
+                    </div>
                   )}
-                  <span>{relativeTime(report.createdAt)}</span>
                 </div>
 
                 {report.attachments.length > 0 && (

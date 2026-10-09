@@ -18,6 +18,7 @@ import rescueTeamRoutes from "./kaveesha-rescueTeamRoutes";
 import rescueDispatchRoutes from "./kaveesha-dispatchRoutes";
 import shelterRoutes from "./kaveesha-shelterRoutes";
 import shelterManagerRoutes from "./kaveesha-shelterManagerRoutes";
+import resourceRequestRoutes from "./dildhara-resourceRequestRoutes";
 
 const router = Router();
 
@@ -43,10 +44,8 @@ router.use("/resources", resourceRoutes);
 router.use("/rescue-organization", rescueOrganizationRoutes);
 router.use("/rescue-teams", rescueTeamRoutes);
 router.use("/rescue-dispatch", rescueDispatchRoutes);
-// Shelter Coordination: the officer desk + citizen browse carry their own paths
-// (/shelters, /shelter-groups, /shelter-managers), so this mounts at the root;
-// the Shelter Manager workspace is namespaced under /shelter-manager.
 router.use(shelterRoutes);
 router.use("/shelter-manager", shelterManagerRoutes);
+router.use("/resource-requests", resourceRequestRoutes);
 
 export default router;

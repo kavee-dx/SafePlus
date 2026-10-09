@@ -11,6 +11,8 @@ import {
 import { ChipField, EditField } from "../components/dildhara-EditFields";
 import MyResourcesScreen from "./dildhara-MyResourcesScreen";
 import ProvideResourceScreen from "./dildhara-ProvideResourceScreen";
+import RequestResourceScreen from "./dildhara-RequestResourceScreen";
+import MyResourceRequestsScreen from "./dildhara-MyResourceRequestsScreen";
 
 type Value = string | number | boolean | null | undefined;
 
@@ -241,7 +243,7 @@ export default function ProfileScreen({
 }: ProfileScreenProps) {
   const [editing, setEditing] = useState(false);
   const [resourcePage, setResourcePage] = useState<
-  "none" | "my" | "provide"
+  "none" | "my" | "provide" | "request" | "myRequests"
 >("none");
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -363,6 +365,8 @@ export default function ProfileScreen({
 const canProvideResources =
   profile.user.role === "RELIEF_AGENCY" ||
   profile.user.role === "FOOD_DONOR";
+  const canRequestResources =
+  profile.user.role === "CITIZEN";
  if (resourcePage === "provide") {
   return (
     <ProvideResourceScreen
@@ -380,6 +384,29 @@ if (resourcePage === "my") {
       token={token}
       onProvideResource={() => setResourcePage("provide")}
       onBack={() => setResourcePage("none")}
+      onSessionExpired={onSessionExpired}
+    />
+  );
+}
+if (resourcePage === "request") {
+  return (
+    <RequestResourceScreen
+      token={token}
+      onSuccess={() => setResourcePage("myRequests")}
+      onCancel={() => setResourcePage("none")}
+      onSessionExpired={onSessionExpired}
+    />
+  );
+}
+
+if (resourcePage === "myRequests") {
+  return (
+    <MyResourceRequestsScreen
+      token={token}
+      onBack={() => setResourcePage("none")}
+      onRequestResource={() =>
+        setResourcePage("request")
+      }
       onSessionExpired={onSessionExpired}
     />
   );
@@ -436,6 +463,37 @@ if (resourcePage === "my") {
           {section.fields.filter(visibleField).map(renderField)}
         </Section>
       ))}
+      {/* {canRequestResources ? (
+  <Section title="Resource Requests">
+    <Text className="mb-3 text-sm leading-5 text-safeplus-muted">
+      Request resources that you need
+      during an emergency.
+    </Text>
+
+    <Pressable
+      onPress={() =>
+        setResourcePage("myRequests")
+      }
+      className="items-center justify-center h-12 mb-3 rounded-2xl bg-safeplus-green"
+    >
+      <Text className="text-base font-extrabold text-white">
+        My Requests
+      </Text>
+    </Pressable>
+
+    <Pressable
+      onPress={() =>
+        setResourcePage("request")
+      }
+      className="items-center justify-center h-12 bg-white border rounded-2xl border-safeplus-border"
+    >
+      <Text className="text-base font-extrabold text-safeplus-darkGreen">
+        + Request Resource
+      </Text>
+    </Pressable>
+  </Section>
+) : null} */}
+      {/* {canProvideResources ? ( */}
       {/* {canProvideResources ? (
   <Section title="Relief Resources">
     <Text className="mb-3 text-sm leading-5 text-safeplus-muted">

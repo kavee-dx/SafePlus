@@ -9,6 +9,7 @@ import {
 import {
   BoundarySource,
   ChannelType,
+  DEFAULT_WARNING_LIFETIME_HOURS,
   WarningStatus,
   type AudiencePreview,
   type Coordinate,
@@ -18,31 +19,42 @@ import {
 import {
   changeStatus,
   deleteDraft as deleteDraftRow,
+  deleteIssuedWarning as deleteIssuedWarningRow,
   expireOverdueWarnings,
+  extendExpiry as extendExpiryRow,
   findAlertAudience,
   findWarningByPublicId,
   insertBroadcastLogs,
   insertWarning,
   listWarningsByOfficer,
+  listWarningsByReport,
   markBroadcast,
   updateWarning,
   type AudienceRow,
 } from "../repositories/dushani-warningRepository";
 import {
+  findReportById,
   findReportByPublicId,
   findVerificationRecipients,
   insertNotifications,
 } from "../repositories/dushani-hazardReportRepository";
+import { insertAlertSms } from "../repositories/dushani-alertSmsRepository";
+import type { NewAlertSms } from "../models/alertSms";
 
 import { getDistrictBoundaryService } from "./dushani-districtBoundaryService";
 import { getOfficerPinService } from "./dushani-officerPinService";
 import {
   ChannelDispatcher,
-  PushNotificationAdapter,
+  PushAlertChannel,
   SirenRelayAdapter,
   type AlertRecipient,
 } from "./dushani-disseminationChannels";
-import { SmsAlertChannel, defaultInstruction } from "./dushani-smsGatewayService";
+import {
+  SmsAlertChannel,
+  alertLevelLabel,
+  defaultInstruction,
+  smsSenderId,
+} from "./dushani-smsGatewayService";
 import { getAuditLogger } from "./dushani-auditLoggerService";
 
 const boundaries = getDistrictBoundaryService();
@@ -96,6 +108,18 @@ export class WarningService {
     data: CreateDraftRequest
   ): Promise<DisasterWarning> {
     const report = await this.requireVerifiedReport(data.reportId);
+
+    const raised = await listWarningsByReport(report.id);
+
+    if (raised.length > 0) {
+      const existing = raised[0];
+
+      throw new ApiError(
+        409,
+        `Report ${report.reportId} already raised ${existing.warningId} (${existing.status.replace(/_/g, " ").toLowerCase()}). One report can carry one warning only - reopen it from Alert history, or verify a fresh ground report to alert again.`,
+        { reportId: "This report already has a warning." }
+      );
+    }
 
     if (!boundaries.hasDistrict(data.targetDistrict)) {
       throw new ApiError(400, "Choose a real Sri Lankan district.", {
@@ -195,6 +219,34 @@ export class WarningService {
   }
 
   /**
+   * Delete an issued warning (ACTIVE, EXPIRED, or STOOD_DOWN) by the issuing officer.
+   */
+  async deleteIssuedWarning(publicWarningId: string, officerId: string): Promise<void> {
+    const warning = await this.requireWarning(publicWarningId);
+
+    if (warning.officerId !== officerId) {
+      throw new ApiError(403, "Only the issuing officer can delete a warning.");
+    }
+
+    if (warning.status !== WarningStatus.ACTIVE && warning.status !== WarningStatus.EXPIRED && warning.status !== WarningStatus.STOOD_DOWN) {
+      throw new ApiError(409, "Only issued warnings can be deleted.");
+    }
+
+    const deleted = await deleteIssuedWarningRow(warning.id, officerId);
+
+    if (!deleted) {
+      throw new ApiError(409, "This warning could not be deleted.");
+    }
+
+    auditLogger.log({
+      warningId: warning.warningId,
+      officerId,
+      action: "WARNING_DELETED",
+      entryPoint: "DELETE_WARNING",
+    });
+  }
+
+  /**
    * Step 4: "who actually gets this?" answered before, not after, the broadcast.
    */
   async previewAudience(
@@ -248,7 +300,7 @@ export class WarningService {
     }
 
     const warning = await this.requireOwnedDraft(warningId, officerId);
-    const report = await this.requireVerifiedReport(warning.reportId);
+    const report = await this.requireVerifiedReportByInternalId(warning.reportId);
 
     const target = this.targetFromWarning(warning);
     const audience = this.toAudience(
@@ -268,11 +320,31 @@ export class WarningService {
       );
     }
 
-    const dispatched = await markBroadcast(warning.id, {
-      audienceCount: audience.audienceCount,
-      smsRecipientCount: audience.smsCapable,
-      estimatedReach: audience.estimatedReach,
-    });
+    const lifetimeHours =
+      warning.expiresInHours ?? DEFAULT_WARNING_LIFETIME_HOURS;
+    const issuedAt = new Date();
+    const expiresAt = new Date(Date.now() + lifetimeHours * 3_600_000);
+
+    // Update warning messages to include issued and expiry times
+    const messagesWithTime = this.synthesizeMessages(
+      warning.hazardType,
+      warning.severityLevel,
+      warning.targetDistrict,
+      warning.safetyInstructions,
+      issuedAt,
+      expiresAt
+    );
+
+    const dispatched = await markBroadcast(
+      warning.id,
+      {
+        audienceCount: audience.audienceCount,
+        smsRecipientCount: audience.smsCapable,
+        estimatedReach: audience.estimatedReach,
+      },
+      expiresAt,
+      messagesWithTime
+    );
 
     if (!dispatched) {
       throw new ApiError(409, "This warning changed while you were authorizing it.");
@@ -283,6 +355,14 @@ export class WarningService {
       dispatched,
       selected,
       audience.recipients
+    );
+
+    // Seed the handsets first: this store is what the citizen app reads, so a
+    // bookkeeping failure below must never leave a broadcast invisible.
+    const inboxRows = await this.storeInInbox(
+      dispatched,
+      audience.recipients,
+      messagesWithTime
     );
 
     await insertBroadcastLogs(
@@ -322,6 +402,7 @@ export class WarningService {
         district: dispatched.targetDistrict,
         audienceCount: audience.audienceCount,
         delivered,
+        inboxRows,
         channels: [...outcome.results.keys()],
         sirenAutoIncluded: selected.includes(ChannelType.SIREN) && !dispatched.channels.siren,
       },
@@ -339,18 +420,40 @@ export class WarningService {
   }
 
   /**
-   * Telemetry stand-down: an ACTIVE warning must be closable, otherwise the
-   * officer has no way to stop a stale alert.
+   * Telemetry stand-down: a live warning must be closable, otherwise the
+   * officer has no way to stop a stale alert. Needs the same clearance PIN as
+   * the broadcast that put it on the handsets.
    */
-  async standDown(officerId: string, warningId: string): Promise<DisasterWarning> {
+  async standDown(
+    officerId: string,
+    warningId: string,
+    securityPin: string
+  ): Promise<DisasterWarning> {
+    const pinAuthorized = await this.authorize(officerId, warningId, securityPin, "STAND_DOWN");
+
+    if (!pinAuthorized) {
+      await auditLogger.logImmediate({
+        warningId,
+        officerId,
+        action: "AUTH_FAILED",
+        entryPoint: "STAND_DOWN",
+        details: { reason: "INVALID_CLEARANCE_PIN" },
+      });
+
+      throw new ApiError(401, "Invalid Authorization PIN.");
+    }
+
     const warning = await this.requireWarning(warningId);
 
     if (warning.officerId !== officerId) {
       throw new ApiError(403, "Only the issuing officer can stand a warning down.");
     }
 
-    if (warning.status !== WarningStatus.ACTIVE) {
-      throw new ApiError(409, "Only an active warning can be stood down.");
+    if (
+      warning.status !== WarningStatus.ACTIVE &&
+      warning.status !== WarningStatus.EXPIRED
+    ) {
+      throw new ApiError(409, "Only a broadcast warning can be stood down.");
     }
 
     const updated = await changeStatus(warning.id, WarningStatus.STOOD_DOWN);
@@ -369,6 +472,66 @@ export class WarningService {
     return updated;
   }
 
+  /**
+   * The danger has not always passed when the officer's first guess at a
+   * lifetime runs out, so a live warning must be extendable. Extending also
+   * revives one that lapsed minutes ago. Requires PIN authorization.
+   */
+  async extendExpiry(
+    officerId: string,
+    warningId: string,
+    extendByHours: number,
+    securityPin: string
+  ): Promise<DisasterWarning> {
+    const pinAuthorized = await this.authorize(
+      officerId,
+      warningId,
+      securityPin,
+      "EXTEND_EXPIRY"
+    );
+
+    if (!pinAuthorized) {
+      await auditLogger.logImmediate({
+        warningId,
+        officerId,
+        action: "AUTH_FAILED",
+        entryPoint: "EXTEND_EXPIRY",
+        details: { reason: "INVALID_CLEARANCE_PIN" },
+      });
+
+      throw new ApiError(401, "Invalid Authorization PIN.");
+    }
+
+    const warning = await this.requireWarning(warningId);
+
+    if (warning.officerId !== officerId) {
+      throw new ApiError(403, "Only the issuing officer can extend a warning.");
+    }
+
+    if (warning.status !== WarningStatus.ACTIVE && warning.status !== WarningStatus.EXPIRED) {
+      throw new ApiError(409, "Only a broadcast warning can be extended.");
+    }
+
+    const updated = await extendExpiryRow(warning.id, officerId, extendByHours);
+
+    if (!updated) {
+      throw new ApiError(409, "This warning can no longer be extended.");
+    }
+
+    auditLogger.log({
+      warningId,
+      officerId,
+      action: "EXPIRY_EXTENDED",
+      entryPoint: "TELEMETRY",
+      details: {
+        extendByHours,
+        expiresAt: updated.expiresAt?.toISOString() ?? null,
+      },
+    });
+
+    return updated;
+  }
+
   async getWarning(warningId: string): Promise<DisasterWarning | null> {
     await expireOverdueWarnings();
 
@@ -383,28 +546,35 @@ export class WarningService {
 
   /**
    * Payload preview helper: builds the trilingual text the officer then edits.
+   * Now includes issued time and expiry time.
    */
   synthesizeMessages(
     hazardType: string,
     severityLevel: string,
     targetDistrict: string,
-    safetyInstructions?: string
+    safetyInstructions?: string,
+    issuedAt?: Date,
+    expiresAt?: Date
   ): { english: string; sinhala: string; tamil: string } {
     const label = severityLabel(severityLevel);
     const readable = hazardType.replace(/_/g, " ").toLowerCase();
     const instruction = safetyInstructions?.trim() || defaultInstruction(severityLevel);
 
+    const issuedStr = issuedAt ? issuedAt.toLocaleString() : "";
+    const expiryStr = expiresAt ? expiresAt.toLocaleString() : "";
+
     return {
-      english: `SAFEPLUS ALERT: ${label} - ${readable} in ${targetDistrict} District. ${instruction}`,
-      sinhala: `සේෆ්ප්ලස් අනතුරු ඇඟවීම: ${targetDistrict} දිස්ත්‍රික්කයේ ${readable} - ${label}. ${instruction}`,
-      tamil: `SAFEPlus எச்சரிக்கை: ${targetDistrict} மாவட்டத்தில் ${readable} - ${label}. ${instruction}`,
+      english: `SAFEPLUS ALERT: ${label} - ${readable} in ${targetDistrict} District. ${instruction} Issued: ${issuedStr}. Expires: ${expiryStr}`,
+      sinhala: `සේෆ්ප්ලස් අනතුරු ඇඟවීම: ${targetDistrict} දිස්ත්‍රික්කයේ ${readable} - ${label}. ${instruction} නිකුත් කළ: ${issuedStr}. කල් ඉකුත් වන: ${expiryStr}`,
+      tamil: `SAFEPlus எச்சரிக்கை: ${targetDistrict} மாவட்டத்தில் ${readable} - ${label}. ${instruction} வெளியிடப்பட்டது: ${issuedStr}. காலாவதி: ${expiryStr}`,
     };
   }
 
   private async authorize(
     officerId: string,
     warningId: string,
-    securityPin: string
+    securityPin: string,
+    entryPoint = "BROADCAST"
   ): Promise<boolean> {
     try {
       return await pinService.verify(officerId, securityPin);
@@ -414,7 +584,7 @@ export class WarningService {
           warningId,
           officerId,
           action: "AUTH_FAILED",
-          entryPoint: "BROADCAST",
+          entryPoint,
           details: { reason: "CLEARANCE_PIN_NOT_CONFIGURED" },
         });
       }
@@ -438,9 +608,24 @@ export class WarningService {
     });
   }
 
+  /**
+   * The wizard sends the human readable RPT-... id; the API resolves it here.
+   */
   private async requireVerifiedReport(reportId: string): Promise<HazardReport> {
-    const report = await findReportByPublicId(reportId);
+    return this.assertVerified(await findReportByPublicId(reportId));
+  }
 
+  /**
+   * `disaster_warnings.report_id` holds the internal uuid, so a warning that is
+   * already persisted must be re-checked by that id instead.
+   */
+  private async requireVerifiedReportByInternalId(
+    id: string
+  ): Promise<HazardReport> {
+    return this.assertVerified(await findReportById(id));
+  }
+
+  private assertVerified(report: HazardReport | null): HazardReport {
     if (!report) {
       throw new ApiError(404, "Select the verified hazard report first.", {
         reportId: "Unknown hazard report.",
@@ -582,6 +767,37 @@ export class WarningService {
     };
   }
 
+  /**
+   * The citizen app reads its alerts from this store rather than from the push
+   * socket, so a broadcast that is not written here is invisible on the
+   * handset even when the channel reports it as sent. Runs after dispatch:
+   * the SMS channel seeds the rows it owns, and this tops the cohort up.
+   */
+  private async storeInInbox(
+    warning: DisasterWarning,
+    recipients: AlertRecipient[],
+    messages: { english: string; sinhala: string; tamil: string }
+  ): Promise<number> {
+    const body = [messages.english, messages.sinhala, messages.tamil]
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .join(" | ");
+
+    return insertAlertSms(
+      recipients.map<NewAlertSms>((recipient) => ({
+        warningInternalId: warning.id,
+        recipientId: recipient.userId,
+        senderId: smsSenderId(),
+        levelLabel: alertLevelLabel(warning.severityLevel),
+        areaLabel: `${warning.targetDistrict} District`,
+        instruction:
+          warning.safetyInstructions?.trim() ||
+          defaultInstruction(warning.severityLevel),
+        body,
+      }))
+    );
+  }
+
   private async notifyOfficers(
     warning: DisasterWarning,
     report: HazardReport
@@ -606,7 +822,7 @@ export class WarningService {
 function createDispatcher(): ChannelDispatcher {
   const dispatcher = new ChannelDispatcher();
 
-  dispatcher.registerChannel(new PushNotificationAdapter());
+  dispatcher.registerChannel(new PushAlertChannel());
   dispatcher.registerChannel(new SmsAlertChannel());
   dispatcher.registerChannel(new SirenRelayAdapter());
 

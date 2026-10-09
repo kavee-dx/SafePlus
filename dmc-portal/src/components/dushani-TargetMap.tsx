@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import { CircleDot, Eraser, Undo2 } from "lucide-react";
 
-import { Colors } from "../constants/theme";
+import { Console, ConsoleTokens } from "../styles/dushani-consoleTheme";
 import type { Coordinate } from "../types/warning";
 import { pointInDistrict, polygonAreaSqKm } from "../utils/dushani-geo";
 
@@ -16,6 +16,18 @@ interface TargetMapProps {
 }
 
 const SRI_LANKA_CENTER = [7.8731, 80.7718] as [number, number];
+
+const Hairline = Console.line;
+const Divider = Console.lineSoft;
+const Surface = Console.surfaceAlt;
+const Card = Console.surface;
+const Ink = Console.ink;
+const InkDim = Console.inkDim;
+const Line = Console.line;
+const RedTint = Console.redTint;
+const RedText = Console.redInk;
+const ShadowCard = ConsoleTokens.ShadowCard;
+const FocusRing = ConsoleTokens.FocusRing;
 
 /**
  * The one place a target area is chosen. The outline it draws and the district
@@ -82,10 +94,10 @@ export default function TargetMap({
 
       bounds.push(...latLngs);
       L.polygon(latLngs, {
-        color: Colors.blue,
+        color: Console.blueSoft,
         weight: 2,
         dashArray: "6 4",
-        fillColor: Colors.blueLight,
+        fillColor: Console.blue,
         fillOpacity: 0.25,
         interactive: false,
       }).addTo(layer);
@@ -113,25 +125,25 @@ export default function TargetMap({
       L.polygon(
         polygon.map((point) => [point.lat, point.lng] as [number, number]),
         {
-          color: Colors.red,
+          color: Console.red,
           weight: 2,
-          fillColor: Colors.red,
+          fillColor: Console.red,
           fillOpacity: 0.22,
         }
       ).addTo(layer);
     } else {
       L.polyline(
         polygon.map((point) => [point.lat, point.lng] as [number, number]),
-        { color: Colors.red, weight: 2 }
+        { color: Console.red, weight: 2 }
       ).addTo(layer);
     }
 
     polygon.forEach((point, index) => {
       L.circleMarker([point.lat, point.lng], {
         radius: 8,
-        color: Colors.white,
+        color: Console.ink,
         weight: 2,
-        fillColor: Colors.redDark,
+        fillColor: Console.red,
         fillOpacity: 1,
       })
         .bindTooltip(`${index + 1}`, { permanent: true, direction: "top" })
@@ -221,10 +233,15 @@ export default function TargetMap({
       <style>
         {`
           .target-map {
-            border: 1px solid ${Colors.border};
-            border-radius: 12px;
+            border: 1px solid ${Hairline};
+            border-radius: 14px;
             overflow: hidden;
-            background: ${Colors.white};
+            background: ${Card};
+            box-shadow: ${ShadowCard};
+            color: ${Ink};
+            color-scheme: dark;
+            text-align: left;
+            font-variant-numeric: tabular-nums;
           }
 
           .target-map-toolbar {
@@ -232,8 +249,9 @@ export default function TargetMap({
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            padding: 10px 14px;
-            border-bottom: 1px solid ${Colors.border};
+            padding: 11px 14px;
+            border-bottom: 1px solid ${Divider};
+            background: ${Surface};
             flex-wrap: wrap;
           }
 
@@ -243,11 +261,13 @@ export default function TargetMap({
             gap: 8px;
             font-size: 12px;
             font-weight: 700;
-            color: ${Colors.text};
+            letter-spacing: -0.005em;
+            color: ${Ink};
           }
 
           .target-map-mode svg {
-            color: ${Colors.red};
+            color: ${Console.red};
+            flex-shrink: 0;
           }
 
           .target-map-actions {
@@ -259,43 +279,89 @@ export default function TargetMap({
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 12px;
-            border: 1px solid ${Colors.border};
+            height: 30px;
+            padding: 0 12px;
+            border: 1px solid ${Line};
             border-radius: 8px;
-            background: ${Colors.white};
-            color: ${Colors.text};
+            background: ${Card};
+            color: ${Ink};
+            font-family: inherit;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
+            white-space: nowrap;
+            box-shadow: none;
+            transition: border-color 140ms ease, color 140ms ease,
+              background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
           }
 
           .target-map-button:hover:not(:disabled) {
-            border-color: ${Colors.red};
-            color: ${Colors.red};
+            border-color: ${Console.blueSoft};
+            color: ${Console.blueInk};
+            box-shadow: ${ShadowCard};
+          }
+
+          .target-map-button:active:not(:disabled) {
+            transform: translateY(1px);
+          }
+
+          .target-map-button:focus-visible {
+            outline: none;
+            border-color: ${Console.red};
+            box-shadow: ${FocusRing};
           }
 
           .target-map-button:disabled {
             opacity: 0.45;
             cursor: not-allowed;
+            box-shadow: none;
           }
 
           .target-map-canvas {
             height: 360px;
+            background: ${Surface};
           }
 
           .target-map-footer {
             padding: 10px 14px;
-            border-top: 1px solid ${Colors.border};
+            border-top: 1px solid ${Divider};
           }
 
           .target-map-hint {
-            font-size: 12px;
-            color: ${Colors.muted};
+            display: block;
+            font-size: 11.5px;
+            font-weight: 500;
+            line-height: 1.5;
+            color: ${InkDim};
           }
 
           .target-map-hint-error {
-            color: ${Colors.redDark};
-            font-weight: 600;
+            padding: 9px 12px;
+            border: 1px solid var(--sp-red-line, #5F1D22);
+            border-radius: 9px;
+            background: ${RedTint};
+            color: ${RedText};
+            font-weight: 700;
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .target-map,
+            .target-map * {
+              animation-duration: 0.01ms !important;
+              transition-duration: 0.01ms !important;
+            }
+          }
+
+          @media (max-width: 720px) {
+            .target-map-canvas {
+              height: 280px;
+            }
+
+            .target-map-toolbar {
+              align-items: flex-start;
+              flex-direction: column;
+              gap: 10px;
+            }
           }
         `}
       </style>

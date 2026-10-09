@@ -1,13 +1,29 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle, KeyRound, Loader2, ShieldCheck } from "lucide-react";
 
-import { Colors } from "../constants/theme";
+import { Console, ConsoleTokens } from "../styles/dushani-consoleTheme";
 import {
   AlertApiError,
   fetchPinStatus,
   setPin,
   type PinStatus,
 } from "../services/dushani-alertApi";
+
+const Hairline = Console.line;
+const Divider = Console.lineSoft;
+const Surface = Console.surfaceAlt;
+const Card = Console.surface;
+const Ink = Console.ink;
+const InkDim = Console.inkDim;
+const White = "#FFFFFF";
+const Line = Console.line;
+const RedTint = Console.redTint;
+const RedText = Console.redInk;
+const GreenTint = Console.greenTint;
+const GreenText = Console.greenInk;
+const ShadowCard = ConsoleTokens.ShadowCard;
+const FocusRing = ConsoleTokens.FocusRing;
+const Mono = ConsoleTokens.Mono;
 
 const PIN_RULES = [
   "Exactly 6 digits.",
@@ -223,24 +239,29 @@ export default function ClearancePinCard() {
           .pin-card {
             width: 100%;
             max-width: 620px;
-            background: ${Colors.white};
-            border: 1px solid ${Colors.border};
-            border-radius: 16px;
+            background: ${Card};
+            border: 1px solid ${Hairline};
+            border-radius: 18px;
             padding: 28px;
+            box-shadow: ${ShadowCard};
           }
 
           .pin-card-header {
             display: flex;
+            align-items: flex-start;
             gap: 16px;
             margin-bottom: 22px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid ${Divider};
           }
 
           .pin-card-icon {
             width: 46px;
             height: 46px;
             border-radius: 12px;
-            background: ${Colors.redLight};
-            color: ${Colors.red};
+            background: ${RedTint};
+            color: ${RedText};
+            border: 1px solid #FDA29B;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -251,49 +272,67 @@ export default function ClearancePinCard() {
             margin: 0 0 6px;
             font-size: 19px;
             font-weight: 800;
-            color: ${Colors.text};
+            color: ${Ink};
             letter-spacing: -0.02em;
+            line-height: 1.25;
           }
 
           .pin-card-header p {
             margin: 0;
             font-size: 13px;
+            font-weight: 500;
             line-height: 1.6;
-            color: ${Colors.muted};
+            color: ${InkDim};
           }
 
           .pin-state {
             display: flex;
             align-items: center;
             gap: 10px;
+            margin: 0 0 18px;
+            padding: 14px 16px;
+            border: 1px dashed ${Line};
+            border-radius: 12px;
+            background: ${Surface};
             font-size: 13px;
-            color: ${Colors.muted};
+            font-weight: 600;
+            color: ${InkDim};
           }
 
           .pin-banner {
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
             padding: 12px 14px;
-            border-radius: 10px;
+            border: 1px solid transparent;
+            border-radius: 12px;
             font-size: 13px;
             font-weight: 600;
+            line-height: 1.5;
             margin-bottom: 18px;
           }
 
+          .pin-banner svg {
+            flex-shrink: 0;
+            margin-top: 2px;
+          }
+
           .pin-banner-ok {
-            background: #dcfce7;
-            color: #166534;
+            background: ${GreenTint};
+            color: ${GreenText};
+            border-color: #A7F3C0;
           }
 
           .pin-banner-warn {
-            background: ${Colors.amberLight};
-            color: ${Colors.amberText};
+            background: ${Console.amberTint};
+            color: ${Console.amberInk};
+            border-color: #FDCF5F;
           }
 
           .pin-banner-error {
-            background: ${Colors.redLight};
-            color: ${Colors.redDark};
+            background: ${RedTint};
+            color: ${RedText};
+            border-color: #FDA29B;
           }
 
           .pin-form {
@@ -304,29 +343,44 @@ export default function ClearancePinCard() {
 
           .pin-field label {
             display: block;
-            font-size: 12px;
-            font-weight: 700;
-            color: ${Colors.text};
+            font-size: 10.5px;
+            font-weight: 800;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: ${InkDim};
             margin-bottom: 6px;
           }
 
           .pin-field input {
             width: 100%;
-            height: 48px;
-            border: 1px solid ${Colors.border};
+            height: 44px;
+            border: 1px solid ${Line};
             border-radius: 10px;
             padding: 0 14px;
-            font-size: 18px;
+            font-family: ${Mono};
+            font-size: 16px;
             font-weight: 700;
-            letter-spacing: 0.35em;
-            color: ${Colors.text};
-            background: ${Colors.white};
+            letter-spacing: 0.28em;
+            font-variant-numeric: tabular-nums;
+            color: ${Ink};
+            background: ${Card};
+            caret-color: ${Console.red};
+            transition: border-color 140ms ease, box-shadow 140ms ease;
+          }
+
+          .pin-field input:hover:not(:disabled) {
+            border-color: ${Console.blueSoft};
           }
 
           .pin-field input:focus {
             outline: none;
-            border-color: ${Colors.red};
-            box-shadow: 0 0 0 3px ${Colors.redLight};
+            border-color: ${Console.red};
+            box-shadow: ${FocusRing};
+          }
+
+          .pin-field input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
           }
 
           .pin-field-error {
@@ -334,17 +388,39 @@ export default function ClearancePinCard() {
             margin-top: 6px;
             font-size: 12px;
             font-weight: 600;
-            color: ${Colors.redDark};
+            color: ${RedText};
           }
 
           .pin-rules {
+            list-style: none;
             margin: 0;
-            padding-left: 18px;
+            padding: 12px 16px;
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 6px;
+            background: ${Surface};
+            border: 1px solid ${Hairline};
+            border-radius: 12px;
             font-size: 12px;
-            color: ${Colors.muted};
+            color: ${InkDim};
+          }
+
+          .pin-rules li {
+            position: relative;
+            padding-left: 16px;
+            line-height: 1.5;
+            font-weight: 500;
+          }
+
+          .pin-rules li::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 8px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: ${Line};
           }
 
           .pin-submit {
@@ -352,24 +428,41 @@ export default function ClearancePinCard() {
             display: inline-flex;
             align-items: center;
             gap: 10px;
-            height: 46px;
+            height: 44px;
             padding: 0 22px;
-            border: none;
+            border: 1px solid ${Console.red};
             border-radius: 10px;
-            background: ${Colors.red};
-            color: ${Colors.white};
+            background: ${Console.red};
+            color: ${White};
+            font-family: inherit;
             font-size: 14px;
             font-weight: 700;
             cursor: pointer;
+            box-shadow: 0 1px 3px rgba(217, 45, 32, 0.32);
+            transition: background 140ms ease, border-color 140ms ease,
+              box-shadow 140ms ease, transform 140ms ease;
           }
 
           .pin-submit:hover:not(:disabled) {
-            background: ${Colors.redDark};
+            background: ${RedText};
+            border-color: ${RedText};
+            box-shadow: 0 4px 12px -4px rgba(180, 35, 24, 0.5);
+          }
+
+          .pin-submit:active:not(:disabled) {
+            transform: translateY(1px);
+          }
+
+          .pin-submit:focus-visible {
+            outline: none;
+            border-color: ${Console.red};
+            box-shadow: ${FocusRing};
           }
 
           .pin-submit:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            box-shadow: none;
           }
 
           .spin {
@@ -382,9 +475,29 @@ export default function ClearancePinCard() {
             }
           }
 
+          @media (prefers-reduced-motion: reduce) {
+            .pin-card *,
+            .pin-card *::before,
+            .pin-card *::after {
+              animation-duration: 0.01ms !important;
+              animation-iteration-count: 1 !important;
+              transition-duration: 0.01ms !important;
+            }
+          }
+
           @media (max-width: 640px) {
             .pin-card {
               padding: 20px;
+            }
+
+            .pin-card-header {
+              flex-direction: column;
+              gap: 12px;
+            }
+
+            .pin-submit {
+              align-self: stretch;
+              justify-content: center;
             }
           }
         `}

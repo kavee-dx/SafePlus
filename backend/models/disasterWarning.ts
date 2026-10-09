@@ -19,6 +19,8 @@ export enum BroadcastStatus {
   SUCCESS = "SUCCESS",
   FAILED = "FAILED",
   PARTIAL = "PARTIAL",
+  /** The channel ran but had no registered receivers - nothing was attempted. */
+  SKIPPED = "SKIPPED",
 }
 
 export enum BoundarySource {
@@ -89,6 +91,7 @@ export interface DisasterWarning {
   estimatedReach?: number;
   startTime?: Date;
   expiresAt?: Date;
+  expiresInHours?: number;
   createdAt: Date;
   updatedAt: Date;
   broadcastAt?: Date;
@@ -96,6 +99,15 @@ export interface DisasterWarning {
   alertPayload?: AlertPayload;
   broadcastLogs?: BroadcastLog[];
 }
+
+/** Hours the officer may choose from; the countdown starts at broadcast. */
+export const WARNING_LIFETIME_HOURS = [1, 3, 6, 12, 24, 48, 72, 168] as const;
+
+/** A draft saved before this field existed still has to stop alerting. */
+export const DEFAULT_WARNING_LIFETIME_HOURS = 24;
+
+/** One extension cannot quietly keep an emergency warning alive forever. */
+export const MAX_EXPIRY_EXTENSION_HOURS = 72;
 
 export interface CreateDraftRequest {
   reportId: string;
@@ -108,7 +120,7 @@ export interface CreateDraftRequest {
   sinhalaMessage: string;
   tamilMessage: string;
   channels: ChannelSelection;
-  draftExpiresInHours?: number;
+  expiresInHours?: number;
 }
 
 export interface BroadcastWarningRequest {

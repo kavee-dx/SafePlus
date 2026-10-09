@@ -26,7 +26,7 @@ import {
   type PortalAccount,
 } from "../services/dildhara-portalAuthApi";
 
-export type PortalPage = "dashboard" | "profile";
+export type PortalPage = "dashboard" | "profile" | "resource-requests";
 
 const UPCOMING_MENU: Record<string, { label: string; icon: LucideIcon }[]> = {
   DMC_OFFICER: [
@@ -194,6 +194,16 @@ export default function PortalLayout({
               <User size={17} />
               My profile
             </button>
+            {account.role === "COORDINATOR" && (
+              <button
+                type="button"
+                className={`pl-nav-item ${activePage === "resource-requests" ? "active" : ""}`}
+                onClick={() => go("resource-requests")}
+              >
+                <Package size={17} />
+                Resource requests
+              </button>
+            )}
 
             {upcoming.length > 0 && (
               <>
