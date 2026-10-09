@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
-  ClipboardCheck,
+  ChevronRight,
   Home,
   Inbox,
   Loader2,
@@ -14,31 +14,37 @@ import {
   Menu,
   ShieldCheck,
   User,
+  Users,
   X,
-  XCircle,
 } from "lucide-react";
 
 import { Colors } from "../constants/theme";
 import type { AuthUser } from "../types/auth";
-import type { HazardReport } from "../types/hazardReport";
-import {
-  fetchPendingReports,
-  fetchVerifiedReports,
-  verifyReport,
-  AlertApiError,
-} from "../services/dushani-alertApi";
 import { getStoredDmcToken } from "../services/dmc-authApi";
 import {
   fetchPortalProfile,
   type PortalProfile,
 } from "../services/dildhara-portalAuthApi";
+import {
+  fetchDistrictRescueBoard,
+  type DistrictRescueBoard,
+} from "../services/kaveesha-districtTeamsApi";
+import { fetchIncidents, type IncidentSummary } from "../services/kaveesha-dispatchApi";
+import { teamTypeIcon } from "../constants/kaveesha-rescueTeamOptions";
+import KaveeshaDistrictRescueBoard from "../components/kaveesha-DistrictRescueBoard";
+import KaveeshaIncidentDesk from "../components/kaveesha-IncidentDesk";
+import KaveeshaIncidentResponse from "../components/kaveesha-IncidentResponse";
 
 interface DistrictOfficerDashboardProps {
   officer: AuthUser;
   onLogout: () => void;
 }
 
-type DashboardView = "overview" | "reports" | "verified" | "profile";
+/**
+ * "response" is not a place in the sidebar — it is the page one incident opens
+ * into from the desk, so it is navigated to rather than navigated by.
+ */
+type DashboardView = "overview" | "teams" | "desk" | "response" | "profile";
 
 interface OfficerIdentity {
   fullName: string;
@@ -55,14 +61,20 @@ const VIEW_META: Record<DashboardView, { title: string; subtitle: string }> = {
     title: "District overview",
     subtitle: "Live hazard picture for your assigned district",
   },
-  reports: {
-    title: "Report verification queue",
+  teams: {
+    title: "Rescue force",
     subtitle:
-      "Ground reports raised by citizens in your district — verify to unlock DMC warnings",
+      "Verified rescue teams and the organizations behind them, ready for tasking",
   },
-  verified: {
-    title: "Verified reports",
-    subtitle: "Reports from your district that passed verification",
+  desk: {
+    title: "Incident desk",
+    subtitle:
+      "Only incidents the DMC has verified reach here — take them on for your district and open one to send a team",
+  },
+  response: {
+    title: "Incident response",
+    subtitle:
+      "One verified incident, its map point, the teams you have sent and the ones you can still send",
   },
   profile: {
     title: "My profile",
@@ -135,6 +147,12 @@ export default function KaveeshaDistrictOfficerDashboard({
   const [profileError, setProfileError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * The incident the desk was clicked on. It is held here rather than inside a
+   * component so Back can drop straight to the desk and the sidebar can keep the
+   * desk highlighted while the officer works the incident.
+   */
+  const [responseReport, setResponseReport] = useState<string | null>(null);
 
   const token = getStoredDmcToken();
 
@@ -160,18 +178,27 @@ export default function KaveeshaDistrictOfficerDashboard({
     [officer, profile]
   );
 
-  const go = (view: DashboardView) => {
+  /**
+   * Moving between views always refetches. An incident is only carried into the
+   * response page when the desk explicitly hands one over; every other route
+   * clears it, so the response page never reopens the last pick by accident.
+   */
+  const go = (view: DashboardView, handover?: { incident?: string }) => {
     setCurrentView(view);
     setNotice(null);
+    setResponseReport(view === "response" ? (handover?.incident ?? null) : null);
     setRefreshKey((key) => key + 1);
   };
 
   const nav: { view: DashboardView; label: string; icon: typeof Home }[] = [
     { view: "overview", label: "Overview", icon: Home },
-    { view: "reports", label: "Report queue", icon: Inbox },
-    { view: "verified", label: "Verified reports", icon: ClipboardCheck },
+    { view: "teams", label: "Rescue force", icon: Users },
+    { view: "desk", label: "Incident desk", icon: Inbox },
     { view: "profile", label: "My profile", icon: User },
   ];
+
+  // While an incident is open, the desk stays lit: that is where Back returns.
+  const activeView: DashboardView = currentView === "response" ? "desk" : currentView;
 
   return (
     <div className="kdash-app">
@@ -215,7 +242,7 @@ export default function KaveeshaDistrictOfficerDashboard({
               key={item.view}
               type="button"
               className={`kdash-nav-item ${
-                currentView === item.view ? "kdash-nav-item-active" : ""
+                activeView === item.view ? "kdash-nav-item-active" : ""
               }`}
               onClick={() => go(item.view)}
             >
@@ -313,35 +340,83 @@ export default function KaveeshaDistrictOfficerDashboard({
               key={`overview-${refreshKey}`}
               identity={identity}
               loadingProfile={!profile && !profileError}
-              onOpenQueue={() => go("reports")}
-              onReportVerified={(reportId) => {
-                setNotice(
-                  `Report ${reportId} verified. The DMC can now raise a warning on it.`
-                );
-              }}
+              onOpenDesk={() => go("desk")}
+              onOpenTeams={() => go("teams")}
+              onOpenIncident={(reportId) => go("response", { incident: reportId })}
             />
           )}
 
-          {currentView === "reports" && (
-            <ReportQueueView
-              key={`reports-${refreshKey}`}
-              identity={identity}
-              loadingProfile={!profile && !profileError}
-              onReportVerified={(reportId) => {
-                setNotice(
-                  `Report ${reportId} verified. The DMC can now raise a warning on it.`
-                );
-              }}
-            />
-          )}
+          {currentView === "teams" &&
+            (!profile && !profileError ? (
+              <div className="kdash-loading">
+                <Loader2 className="kdash-spin" size={17} /> Reading your
+                assignment…
+              </div>
+            ) : (
+              /* Keyed by district so the board opens on the right scope even
+                 when the profile arrives after this view is first shown. */
+              <KaveeshaDistrictRescueBoard
+                key={`teams-${identity.district}-${refreshKey}`}
+                token={token}
+                homeDistrict={identity.district}
+              />
+            ))}
 
-          {currentView === "verified" && (
-            <VerifiedReportsView
-              key={`verified-${refreshKey}`}
-              identity={identity}
-              loadingProfile={!profile && !profileError}
-            />
-          )}
+          {currentView === "desk" &&
+            (!profile && !profileError ? (
+              <div className="kdash-loading">
+                <Loader2 className="kdash-spin" size={17} /> Reading your
+                assignment…
+              </div>
+            ) : token ? (
+              /* The desk reads incidents, never raw citizen reports: verification
+                 is the DMC officer's own screen and this one must not duplicate it.
+                 Keyed by district so it never opens on the wrong scope when the
+                 profile arrives late. */
+              <KaveeshaIncidentDesk
+                key={`desk-${identity.district}-${refreshKey}`}
+                token={token}
+                district={identity.district}
+                onOpenIncident={(reportId) => go("response", { incident: reportId })}
+              />
+            ) : null)}
+
+          {currentView === "response" &&
+            (!profile && !profileError ? (
+              <div className="kdash-loading">
+                <Loader2 className="kdash-spin" size={17} /> Reading your
+                assignment…
+              </div>
+            ) : token && responseReport ? (
+              /* One incident only. The teams sent are read live straight under the
+                 map, and the teams still free are listed below them, so a delayed
+                 team never blocks tasking a second one. */
+              <KaveeshaIncidentResponse
+                key={`response-${responseReport}-${refreshKey}`}
+                token={token}
+                reportId={responseReport}
+                district={identity.district}
+                onBack={() => go("desk")}
+              />
+            ) : (
+              /* Reached only by clicking an incident, so a page with no incident
+                 behind it is a dead end — say so and put the officer back. */
+              <div className="kdash-error">
+                <AlertTriangle size={17} />
+                <div>
+                  <h3>No incident is open</h3>
+                  <p>Choose an incident on the desk to work its response.</p>
+                  <button
+                    type="button"
+                    className="kdash-btn"
+                    style={{ marginTop: 10 }}
+                    onClick={() => go("desk")}
+                  >
+                    Open the incident desk
+                  </button>
+                </div>
+              </div>
+            ))}
 
           {currentView === "profile" && <ProfileView identity={identity} />}
         </div>
@@ -359,46 +434,73 @@ export default function KaveeshaDistrictOfficerDashboard({
 function OverviewView({
   identity,
   loadingProfile,
-  onOpenQueue,
-  onReportVerified,
+  onOpenDesk,
+  onOpenTeams,
+  onOpenIncident,
 }: {
   identity: OfficerIdentity;
   loadingProfile: boolean;
-  onOpenQueue: () => void;
-  onReportVerified: (reportId: string) => void;
+  onOpenDesk: () => void;
+  onOpenTeams: () => void;
+  /** Open one incident straight on its response page. */
+  onOpenIncident: (reportId: string) => void;
 }) {
-  const [pending, setPending] = useState<HazardReport[]>([]);
-  const [verified, setVerified] = useState<HazardReport[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [incidents, setIncidents] = useState<IncidentSummary[]>([]);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [force, setForce] = useState<DistrictRescueBoard | null>(null);
 
   const district = identity.district;
 
+  /**
+   * The rescue roster is only a supporting figure on the overview, so a failed
+   * load keeps the placeholder instead of breaking the district summary. The
+   * rescue force tab reports its own errors in full.
+   */
   useEffect(() => {
-    if (!district) {
-      setLoading(false);
-      return;
-    }
+    const boardToken = getStoredDmcToken();
+    if (!boardToken) return;
+
     let cancelled = false;
 
-    Promise.all([
-      fetchPendingReports(district),
-      fetchVerifiedReports(),
-    ])
-      .then(([pendingResult, verifiedResult]) => {
+    fetchDistrictRescueBoard(boardToken, "district")
+      .then((result) => {
+        if (!cancelled) setForce(result);
+      })
+      .catch(() => {
+        if (!cancelled) setForce(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /*
+   * Only verified incidents reach this screen. Whether a citizen's report is
+   * true is decided by the DMC officer on their own bench; the district's
+   * overview starts after that gate, which is why nothing here can verify or
+   * reject anything.
+   */
+  useEffect(() => {
+    if (!district) return;
+
+    const boardToken = getStoredDmcToken();
+    if (!boardToken) return;
+
+    let cancelled = false;
+
+    fetchIncidents(boardToken)
+      .then((result) => {
         if (cancelled) return;
-        setPending(pendingResult);
-        setVerified(
-          verifiedResult.filter(
-            (report) => report.locationDistrict === district
-          )
-        );
+        setError(null);
+        setIncidents(result);
       })
       .catch((loadError) => {
         if (!cancelled) setError(messageOf(loadError));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setReady(true);
       });
 
     return () => {
@@ -406,14 +508,23 @@ function OverviewView({
     };
   }, [district]);
 
-  const urgent = pending.filter(
-    (report) =>
-      report.severityLevel === "HIGH" || report.severityLevel === "CRITICAL"
+  /* The wait has two honest ends: the incident read comes back, or the profile
+     is read and has no district to ask for. Neither leaves a spinner running
+     forever, and neither is set from inside the effect. */
+  const noDistrict = !district && !loadingProfile;
+  const loading = !ready && !noDistrict;
+
+  const untaken = incidents.filter((incident) => !incident.acceptedAt);
+  const urgent = untaken.filter(
+    (incident) =>
+      incident.immediateDanger ||
+      incident.severityLevel === "HIGH" ||
+      incident.severityLevel === "CRITICAL"
   );
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const newThisWeek = [...pending, ...verified].filter(
-    (report) => new Date(report.createdAt).getTime() >= weekAgo
-  ).length;
+  const teamsOut = incidents.reduce(
+    (total, incident) => total + incident.liveDispatchCount,
+    0
+  );
 
   return (
     <div className="kdash-stack">
@@ -426,12 +537,16 @@ function OverviewView({
           <p className="kdash-hero-sub">
             {loading || loadingProfile
               ? "Reading the latest district data…"
-              : `${pending.length} report${
-                  pending.length === 1 ? "" : "s"
-                } awaiting your verification${
-                  urgent.length > 0
-                    ? ` — ${urgent.length} marked high priority`
-                    : ""
+              : `${incidents.length} verified incident${
+                  incidents.length === 1 ? "" : "s"
+                } on your desk${
+                  untaken.length > 0
+                    ? ` — ${untaken.length} still need your yes${
+                        urgent.length > 0
+                          ? `, ${urgent.length} of them dangerous`
+                          : ""
+                      }`
+                    : " — all of them taken on"
                 }.`}
           </p>
         </div>
@@ -456,7 +571,7 @@ function OverviewView({
         </div>
       )}
 
-      {!district && !loading && !loadingProfile && (
+      {noDistrict && (
         <div className="kdash-error">
           <AlertTriangle size={17} />
           <div>
@@ -475,67 +590,74 @@ function OverviewView({
             <StatCard
               tone="warning"
               icon={<Inbox size={21} />}
-              value={loading ? "—" : pending.length}
-              label="Awaiting verification"
+              value={loading ? "—" : untaken.length}
+              label="Need your yes"
             />
             <StatCard
               tone="critical"
               icon={<AlertTriangle size={21} />}
               value={loading ? "—" : urgent.length}
-              label="High priority pending"
+              label="Danger to life"
             />
             <StatCard
               tone="success"
-              icon={<CheckCircle2 size={21} />}
-              value={loading ? "—" : verified.length}
-              label="Verified for this district"
+              icon={<ShieldCheck size={21} />}
+              value={loading ? "—" : incidents.length - untaken.length}
+              label="Taken on by the district"
             />
             <StatCard
               tone="info"
               icon={<CalendarClock size={21} />}
-              value={loading ? "—" : newThisWeek}
-              label="New reports this week"
+              value={loading ? "—" : teamsOut}
+              label="Teams in the field"
             />
           </div>
 
           <div className="kdash-two-col">
             <section className="kdash-panel">
               <div className="kdash-panel-head">
-                <h2>Needs your decision</h2>
+                <h2>Waiting for the district's yes</h2>
                 <button
                   type="button"
                   className="kdash-btn"
-                  onClick={onOpenQueue}
+                  onClick={onOpenDesk}
                 >
-                  Open queue
+                  Open incident desk
                 </button>
               </div>
 
               {loading ? (
                 <div className="kdash-loading">
-                  <Loader2 className="kdash-spin" size={17} /> Loading reports…
+                  <Loader2 className="kdash-spin" size={17} /> Reading your
+                  incidents…
                 </div>
-              ) : pending.length === 0 ? (
+              ) : incidents.length === 0 ? (
                 <p className="kdash-empty">
-                  The queue is clear. New citizen reports for {district} will
-                  appear here for your verification.
+                  Nothing verified has reached {district} yet. Citizen reports
+                  are cleared by the DMC officer first, and only what they verify
+                  appears on your desk.
+                </p>
+              ) : untaken.length === 0 ? (
+                <p className="kdash-empty">
+                  Every incident on your desk has been taken on. Open one to task
+                  a team and watch it live.
                 </p>
               ) : (
                 <div className="kdash-report-list">
-                  {pending.slice(0, 3).map((report) => (
-                    <CompactReportRow
-                      key={report.id}
-                      report={report}
-                      onVerified={onReportVerified}
+                  {untaken.slice(0, 3).map((incident) => (
+                    <CompactIncidentRow
+                      key={incident.id}
+                      incident={incident}
+                      onOpen={() => onOpenIncident(incident.reportId)}
                     />
                   ))}
-                  {pending.length > 3 && (
+                  {untaken.length > 3 && (
                     <button
                       type="button"
                       className="kdash-more"
-                      onClick={onOpenQueue}
+                      onClick={onOpenDesk}
                     >
-                      View all {pending.length} reports
+                      Take the other {untaken.length - 3} on at the desk
                     </button>
                   )}
                 </div>
@@ -544,10 +666,114 @@ function OverviewView({
 
             <DistrictIdentityPanel identity={identity} />
           </div>
+
+          <section className="kdash-panel kdash-force">
+            <div className="kdash-panel-head">
+              <h2>
+                Rescue force{district ? ` in ${district}` : ""}
+              </h2>
+              <button
+                type="button"
+                className="kdash-btn"
+                onClick={onOpenTeams}
+              >
+                Open rescue board
+              </button>
+            </div>
+
+            {force ? (
+              <>
+                <div className="kdash-force-grid">
+                  <ForceCell
+                    value={force.summary.teams}
+                    label="Verified teams"
+                    icon={<ShieldCheck size={15} />}
+                  />
+                  <ForceCell
+                    value={force.summary.available}
+                    label="Available now"
+                    tone="success"
+                    icon={<CheckCircle2 size={15} />}
+                  />
+                  <ForceCell
+                    value={force.summary.onDeployment}
+                    label="On deployment"
+                    tone="warning"
+                    icon={<AlertTriangle size={15} />}
+                  />
+                  <ForceCell
+                    value={force.summary.members}
+                    label="Reported rescuers"
+                    icon={<Users size={15} />}
+                  />
+                  <ForceCell
+                    value={force.summary.organizations}
+                    label="Organizations"
+                    icon={<BadgeCheck size={15} />}
+                  />
+                </div>
+
+                {force.disasters.length > 0 && (
+                  <div className="kdash-force-disasters">
+                    {force.disasters.map((item) => {
+                      const Icon = teamTypeIcon(item.type);
+
+                      return (
+                        <span
+                          key={item.type}
+                          className="kdash-force-disaster"
+                        >
+                          <Icon size={13} />
+                          <strong>{item.type}</strong>
+                          <em>
+                            {item.available}/{item.teams} free
+                          </em>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <p className="kdash-force-note">
+                  Only teams their organization admin or a Super Admin has
+                  verified appear here. Open the rescue board to search by
+                  disaster, contact a team leader, or switch to mutual aid when
+                  your own district is stretched.
+                </p>
+              </>
+            ) : (
+              <div className="kdash-loading">
+                <Loader2 className="kdash-spin" size={17} /> Reading the rescue
+                roster…
+              </div>
+            )}
+          </section>
         </>
       )}
 
-      <style>{OVERVIEW_STYLES}</style>
+      {/* The overview's incident rows are styled by their own block, loaded
+          alongside the overview's so a row is never painted unstyled. */}
+      <style>{`${OVERVIEW_STYLES}${INCIDENT_ROW_STYLES}`}</style>
+    </div>
+  );
+}
+
+function ForceCell({
+  value,
+  label,
+  icon,
+  tone = "info",
+}: {
+  value: number;
+  label: string;
+  icon: React.ReactNode;
+  tone?: "info" | "success" | "warning";
+}) {
+  return (
+    <div className={`kdash-force-cell kdash-force-cell-${tone}`}>
+      <div className="kdash-force-icon">{icon}</div>
+      <div className="kdash-force-value">{value}</div>
+      <div className="kdash-force-label">{label}</div>
     </div>
   );
 }
@@ -602,360 +828,54 @@ function DistrictIdentityPanel({ identity }: { identity: OfficerIdentity }) {
       )}
 
       <p className="kdash-shared-note">
-        Reports are scoped to your district — every officer assigned to{" "}
-        {identity.district || "this district"} sees the same queue, so the duty
-        is covered even when you are off shift.
+        Incidents are scoped to your district — every officer assigned to{" "}
+        {identity.district || "this district"} sees the same desk, so a verified
+        incident is taken on even when you are off shift.
       </p>
     </section>
   );
 }
 
-function CompactReportRow({
-  report,
-  onVerified,
+/*
+ * One incident the district has not taken on yet, said in a line. It is a
+ * reading of the desk, not a decision point: verifying citizen reports belongs
+ * to the DMC officer's own bench, so the row carries the officer straight to the
+ * incident's response page, where the yes is given and a team is tasked.
+ */
+function CompactIncidentRow({
+  incident,
+  onOpen,
 }: {
-  report: HazardReport;
-  onVerified: (reportId: string) => void;
+  incident: IncidentSummary;
+  onOpen: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [fieldError, setFieldError] = useState<string | null>(null);
-
-  const decide = async (decision: "VERIFIED" | "REJECTED") => {
-    setBusy(true);
-    setFieldError(null);
-    try {
-      await verifyReport(report.reportId, decision, notes.trim() || undefined);
-      onVerified(report.reportId);
-    } catch (decisionError) {
-      if (decisionError instanceof AlertApiError) {
-        setFieldError(
-          decisionError.fieldErrors.verificationNotes ?? decisionError.message
-        );
-      } else {
-        setFieldError(messageOf(decisionError));
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <article className={`kdash-report ${expanded ? "kdash-report-open" : ""}`}>
-      <button
-        type="button"
-        className="kdash-report-row"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span className={`kdash-pill kdash-pill-${report.severityLevel.toLowerCase()}`}>
-          {report.severityLevel}
+    <article className="kdash-report">
+      <button type="button" className="kdash-report-row" onClick={onOpen}>
+        <span
+          className={`kdash-pill kdash-pill-${incident.severityLevel.toLowerCase()}`}
+        >
+          {incident.severityLevel}
         </span>
+
         <span className="kdash-report-main">
           <span className="kdash-report-title">
-            {humanize(report.hazardType)}
+            {humanize(incident.hazardType)}
+            {incident.immediateDanger ? " · danger to life" : ""}
           </span>
           <span className="kdash-report-meta">
-            {report.reportId} · {relativeTime(report.createdAt)}
-            {report.reporterName ? ` · by ${report.reporterName}` : ""}
+            {incident.reportId} · verified{" "}
+            {incident.verifiedAt ? relativeTime(incident.verifiedAt) : "recently"}
+            {incident.reporterName ? ` · reported by ${incident.reporterName}` : ""}
+          </span>
+          <span className="kdash-report-note">
+            {incident.landmark || incident.description.slice(0, 96)}
           </span>
         </span>
-        <ChevronDown
-          size={16}
-          className={`kdash-chevron ${expanded ? "kdash-chevron-up" : ""}`}
-        />
+
+        <ChevronRight size={16} className="kdash-chevron" />
       </button>
-
-      {expanded && (
-        <div className="kdash-report-detail">
-          <p className="kdash-report-desc">{report.description}</p>
-
-          <div className="kdash-report-facts">
-            <span>
-              <MapPin size={12} /> {report.locationDistrict}
-              {report.locationLat !== undefined && report.locationLng !== undefined
-                ? ` · ${report.locationLat.toFixed(4)}, ${report.locationLng.toFixed(4)}`
-                : ""}
-            </span>
-            {report.affectedPopulation !== undefined && (
-              <span>{report.affectedPopulation} people affected</span>
-            )}
-          </div>
-
-          <textarea
-            className="kdash-notes"
-            placeholder="Verification note (optional, required when rejecting)"
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            rows={2}
-          />
-
-          {fieldError && <p className="kdash-field-error">{fieldError}</p>}
-
-          <div className="kdash-decision-row">
-            <button
-              type="button"
-              className="kdash-btn kdash-btn-verify"
-              disabled={busy}
-              onClick={() => void decide("VERIFIED")}
-            >
-              {busy ? (
-                <Loader2 className="kdash-spin" size={14} />
-              ) : (
-                <CheckCircle2 size={14} />
-              )}
-              Verify
-            </button>
-            <button
-              type="button"
-              className="kdash-btn kdash-btn-reject"
-              disabled={busy}
-              onClick={() => void decide("REJECTED")}
-            >
-              <XCircle size={14} />
-              Reject
-            </button>
-          </div>
-        </div>
-      )}
     </article>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Report queue
-// ---------------------------------------------------------------------------
-
-function ReportQueueView({
-  identity,
-  loadingProfile,
-  onReportVerified,
-}: {
-  identity: OfficerIdentity;
-  loadingProfile: boolean;
-  onReportVerified: (reportId: string) => void;
-}) {
-  const [reports, setReports] = useState<HazardReport[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const district = identity.district;
-
-  const load = useCallback(() => {
-    if (!district) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    fetchPendingReports(district)
-      .then((result) => {
-        setReports(result);
-        setError(null);
-      })
-      .catch((loadError) => setError(messageOf(loadError)))
-      .finally(() => setLoading(false));
-  }, [district]);
-
-  useEffect(() => {
-    if (!loadingProfile) load();
-  }, [load, loadingProfile]);
-
-  const handleVerified = (reportId: string) => {
-    setReports((current) =>
-      current.filter((report) => report.reportId !== reportId)
-    );
-    onReportVerified(reportId);
-  };
-
-  return (
-    <div className="kdash-stack">
-      {!district && !loadingProfile ? (
-        <div className="kdash-error">
-          <AlertTriangle size={17} />
-          <div>
-            <h3>No district assigned</h3>
-            <p>
-              Your account has no assigned district on file. Contact the Super
-              Admin to complete your assignment.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <section className="kdash-panel">
-          <div className="kdash-panel-head">
-            <p className="kdash-muted">
-              {loading
-                ? "Loading…"
-                : `${reports.length} report${
-                    reports.length === 1 ? "" : "s"
-                  } awaiting verification in ${district}.`}
-            </p>
-            <button type="button" className="kdash-btn" onClick={load}>
-              Refresh
-            </button>
-          </div>
-
-          {error && (
-            <div className="kdash-error">
-              <AlertTriangle size={17} />
-              <div>
-                <h3>Queue could not be loaded</h3>
-                <p>{error}</p>
-              </div>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="kdash-loading">
-              <Loader2 className="kdash-spin" size={17} /> Loading the district
-              queue…
-            </div>
-          ) : reports.length === 0 ? (
-            <p className="kdash-empty">
-              Nothing waiting on you. Verified reports move to the Verified
-              tab, and the DMC takes over from there.
-            </p>
-          ) : (
-            <div className="kdash-report-list">
-              {reports.map((report) => (
-                <CompactReportRow
-                  key={report.id}
-                  report={report}
-                  onVerified={handleVerified}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      <style>{QUEUE_STYLES}</style>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Verified reports
-// ---------------------------------------------------------------------------
-
-function VerifiedReportsView({
-  identity,
-  loadingProfile,
-}: {
-  identity: OfficerIdentity;
-  loadingProfile: boolean;
-}) {
-  const [reports, setReports] = useState<HazardReport[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const district = identity.district;
-
-  useEffect(() => {
-    if (!district || loadingProfile) {
-      if (!loadingProfile) setLoading(false);
-      return;
-    }
-    let cancelled = false;
-
-    fetchVerifiedReports()
-      .then((result) => {
-        if (cancelled) return;
-        setReports(
-          result
-            .filter((report) => report.locationDistrict === district)
-            .sort(
-              (a, b) =>
-                new Date(b.verifiedAt ?? b.updatedAt).getTime() -
-                new Date(a.verifiedAt ?? a.updatedAt).getTime()
-            )
-        );
-      })
-      .catch((loadError) => {
-        if (!cancelled) setError(messageOf(loadError));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [district, loadingProfile]);
-
-  return (
-    <div className="kdash-stack">
-      <section className="kdash-panel">
-        <div className="kdash-panel-head">
-          <p className="kdash-muted">
-            {loading
-              ? "Loading…"
-              : `${reports.length} verified report${
-                  reports.length === 1 ? "" : "s"
-                } for ${district || "your district"}.`}
-          </p>
-        </div>
-
-        {error && (
-          <div className="kdash-error">
-            <AlertTriangle size={17} />
-            <div>
-              <h3>Verified reports could not be loaded</h3>
-              <p>{error}</p>
-            </div>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="kdash-loading">
-            <Loader2 className="kdash-spin" size={17} /> Loading verified
-            reports…
-          </div>
-        ) : reports.length === 0 ? (
-          <p className="kdash-empty">
-            No verified reports for this district yet. Verify a pending report
-            and it will be listed here.
-          </p>
-        ) : (
-          <div className="kdash-report-list">
-            {reports.map((report) => (
-              <article key={report.id} className="kdash-report">
-                <div className="kdash-report-row kdash-report-row-static">
-                  <span
-                    className={`kdash-pill kdash-pill-${report.severityLevel.toLowerCase()}`}
-                  >
-                    {report.severityLevel}
-                  </span>
-                  <span className="kdash-report-main">
-                    <span className="kdash-report-title">
-                      {humanize(report.hazardType)}
-                    </span>
-                    <span className="kdash-report-meta">
-                      {report.reportId} · verified{" "}
-                      {report.verifiedAt
-                        ? relativeTime(report.verifiedAt)
-                        : "recently"}
-                      {(report.warningCount ?? 0) > 0
-                        ? ` · ${report.warningCount} warning${
-                            report.warningCount === 1 ? "" : "s"
-                          } raised`
-                        : ""}
-                    </span>
-                    {report.verificationNotes && (
-                      <span className="kdash-report-note">
-                        “{report.verificationNotes}”
-                      </span>
-                    )}
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <style>{QUEUE_STYLES}</style>
-    </div>
   );
 }
 
@@ -1741,6 +1661,99 @@ const OVERVIEW_STYLES = `
     color: ${Colors.navy};
   }
 
+  .kdash-force-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 12px;
+    margin-top: 15px;
+  }
+
+  .kdash-force-cell {
+    padding: 15px 16px;
+    border-radius: 14px;
+    border: 1px solid ${Colors.border};
+    background: ${Colors.background};
+  }
+
+  .kdash-force-icon {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    margin-bottom: 9px;
+    border-radius: 9px;
+    background: ${Colors.white};
+    border: 1px solid ${Colors.border};
+    color: ${Colors.blue};
+  }
+
+  .kdash-force-cell-success .kdash-force-icon {
+    background: rgba(18, 183, 106, 0.14);
+    border-color: transparent;
+    color: #067647;
+  }
+
+  .kdash-force-cell-warning .kdash-force-icon {
+    background: ${Colors.amberLight};
+    border-color: transparent;
+    color: ${Colors.amberText};
+  }
+
+  .kdash-force-value {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: ${Colors.navy};
+    line-height: 1.1;
+  }
+
+  .kdash-force-label {
+    margin-top: 3px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: ${Colors.muted};
+  }
+
+  .kdash-force-disasters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 14px;
+  }
+
+  .kdash-force-disaster {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 13px;
+    border-radius: 999px;
+    background: ${Colors.white};
+    border: 1px solid ${Colors.border};
+    color: ${Colors.navy};
+    font-size: 12px;
+  }
+
+  .kdash-force-disaster svg { color: ${Colors.blue}; }
+
+  .kdash-force-disaster strong { font-weight: 800; }
+
+  .kdash-force-disaster em {
+    font-style: normal;
+    color: ${Colors.muted};
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .kdash-force-note {
+    margin: 14px 0 0;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.65;
+    color: ${Colors.muted};
+  }
+
   .kdash-identity-list {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1814,74 +1827,13 @@ const OVERVIEW_STYLES = `
   }
 `;
 
-const QUEUE_STYLES = `
-  .kdash-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  .kdash-panel {
-    background: ${Colors.white};
-    border: 1px solid ${Colors.border};
-    border-radius: 14px;
-    padding: 22px;
-  }
-
-  .kdash-panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-  }
-
-  .kdash-muted {
-    margin: 0;
-    font-size: 13px;
-    color: ${Colors.muted};
-  }
-
-  .kdash-empty {
-    margin: 0;
-    font-size: 13px;
-    color: ${Colors.muted};
-    line-height: 1.65;
-  }
-
-  .kdash-loading {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 16px 18px;
-    color: ${Colors.muted};
-    font-size: 13px;
-  }
-
-  .kdash-error {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 16px 18px;
-    border-radius: 12px;
-    background: ${Colors.redLight};
-    border: 1px solid ${Colors.red};
-    color: ${Colors.redDark};
-    font-size: 13px;
-    margin-bottom: 16px;
-  }
-
-  .kdash-error h3 {
-    margin: 0 0 3px;
-    font-size: 14px;
-  }
-
-  .kdash-error p {
-    margin: 0;
-    font-size: 12px;
-  }
-
+/*
+ * Only the shape of a row the overview lists: one verified incident the
+ * district has not taken on yet. The rest of the page is styled by APP_STYLES
+ * and OVERVIEW_STYLES, and nothing here belongs to verification — that is the
+ * DMC officer's own bench.
+ */
+const INCIDENT_ROW_STYLES = `
   .kdash-report-list {
     display: flex;
     flex-direction: column;
@@ -1898,11 +1850,7 @@ const QUEUE_STYLES = `
 
   .kdash-report:hover {
     border-color: #b2c4d8;
-  }
-
-  .kdash-report-open {
-    border-color: ${Colors.blue};
-    box-shadow: 0 6px 18px rgba(21, 112, 239, 0.09);
+    box-shadow: 0 6px 18px rgba(21, 112, 239, 0.07);
   }
 
   .kdash-report-row {
@@ -1915,10 +1863,6 @@ const QUEUE_STYLES = `
     background: transparent;
     text-align: left;
     cursor: pointer;
-  }
-
-  .kdash-report-row-static {
-    cursor: default;
   }
 
   .kdash-report-main {
@@ -1949,12 +1893,7 @@ const QUEUE_STYLES = `
 
   .kdash-chevron {
     color: ${Colors.muted};
-    transition: transform 180ms ease;
     flex-shrink: 0;
-  }
-
-  .kdash-chevron-up {
-    transform: rotate(180deg);
   }
 
   .kdash-pill {
@@ -1973,6 +1912,7 @@ const QUEUE_STYLES = `
     color: ${Colors.blue};
   }
 
+  .kdash-pill-moderate,
   .kdash-pill-medium {
     background: ${Colors.amberLight};
     color: ${Colors.amberText};
@@ -1984,109 +1924,6 @@ const QUEUE_STYLES = `
   }
 
   .kdash-pill-critical {
-    background: ${Colors.redLight};
-    color: ${Colors.redDark};
-  }
-
-  .kdash-report-detail {
-    padding: 4px 17px 17px;
-    border-top: 1px dashed ${Colors.border};
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .kdash-report-desc {
-    margin: 12px 0 0;
-    font-size: 13px;
-    color: ${Colors.text};
-    line-height: 1.65;
-  }
-
-  .kdash-report-facts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 18px;
-    font-size: 12px;
-    color: ${Colors.muted};
-  }
-
-  .kdash-report-facts span {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .kdash-notes {
-    width: 100%;
-    resize: vertical;
-    border: 1px solid ${Colors.border};
-    border-radius: 9px;
-    padding: 10px 12px;
-    font-family: inherit;
-    font-size: 12px;
-    color: ${Colors.text};
-    line-height: 1.5;
-  }
-
-  .kdash-notes:focus {
-    outline: none;
-    border-color: ${Colors.blue};
-    box-shadow: 0 0 0 3px rgba(21, 112, 239, 0.12);
-  }
-
-  .kdash-field-error {
-    margin: 0;
-    font-size: 12px;
-    color: ${Colors.red};
-    font-weight: 600;
-  }
-
-  .kdash-decision-row {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .kdash-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 37px;
-    padding: 0 16px;
-    border: 1px solid ${Colors.border};
-    border-radius: 9px;
-    background: ${Colors.white};
-    color: ${Colors.text};
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .kdash-btn:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .kdash-btn-verify {
-    background: ${Colors.success};
-    border-color: ${Colors.success};
-    color: ${Colors.white};
-  }
-
-  .kdash-btn-verify:hover:not(:disabled) {
-    background: #0e9f5d;
-    border-color: #0e9f5d;
-    color: ${Colors.white};
-  }
-
-  .kdash-btn-reject {
-    color: ${Colors.redDark};
-    border-color: ${Colors.red};
-    background: ${Colors.white};
-  }
-
-  .kdash-btn-reject:hover:not(:disabled) {
     background: ${Colors.redLight};
     color: ${Colors.redDark};
   }

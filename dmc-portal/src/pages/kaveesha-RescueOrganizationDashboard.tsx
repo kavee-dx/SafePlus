@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Gauge,
   Home,
+  Layers,
   LifeBuoy,
   ListChecks,
   Loader2,
@@ -20,6 +21,7 @@ import {
   Phone,
   RefreshCw,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
   Users,
   X,
@@ -141,6 +143,17 @@ export default function RescueOrganizationDashboard({
     setBanner(message);
     setLoading(true);
     setRefreshKey((key) => key + 1);
+  };
+
+  /**
+   * The disaster chosen on the overview. The teams view is remounted with it
+   * so the admin lands straight on that disaster's roster.
+   */
+  const [teamDisaster, setTeamDisaster] = useState("all");
+
+  const openDisasterTeams = (type: string) => {
+    setTeamDisaster(type);
+    setCurrentView("teams");
   };
 
   const adminName = data?.admin.fullName || admin.fullName || "Organization Admin";
@@ -276,13 +289,19 @@ export default function RescueOrganizationDashboard({
           )}
 
           {!loading && !sessionMissing && !error && data && currentView === "overview" && (
-            <OverviewView data={data} adminName={adminName} />
+            <OverviewView
+              data={data}
+              adminName={adminName}
+              onOpenDisaster={openDisasterTeams}
+            />
           )}
 
           {!loading && !sessionMissing && !error && data && currentView === "teams" && (
             <TeamsView
+              key={`teams-${teamDisaster}`}
               data={data}
               token={token ?? ""}
+              initialDisaster={teamDisaster}
               onOpenOrganization={() => setCurrentView("organization")}
               onReviewed={teamReviewed}
             />
@@ -302,11 +321,41 @@ export default function RescueOrganizationDashboard({
 function OverviewView({
   data,
   adminName,
+  onOpenDisaster,
 }: {
   data: RescueOrganizationDashboard;
   adminName: string;
+  onOpenDisaster: (type: string) => void;
 }) {
   const status = statusMeta(data.account.status);
+
+  const coverage = useMemo(() => {
+    const groups = new Map<
+      string,
+      { teams: number; available: number; members: number }
+    >();
+
+    data.teams.forEach((team) => {
+      const type = teamDisaster(team);
+      const group = groups.get(type) ?? {
+        teams: 0,
+        available: 0,
+        members: 0,
+      };
+
+      group.teams += 1;
+      group.members += team.memberCount;
+      if (team.availability === "AVAILABLE" && team.status === "ACTIVE") {
+        group.available += 1;
+      }
+
+      groups.set(type, group);
+    });
+
+    return [...groups.entries()]
+      .map(([type, group]) => ({ type, ...group }))
+      .sort((a, b) => b.teams - a.teams || a.type.localeCompare(b.type));
+  }, [data.teams]);
 
   return (
     <>
@@ -385,6 +434,74 @@ function OverviewView({
         />
       </section>
 
+      {coverage.length > 0 && (
+        <section className="rodash-card rodash-disasters">
+          <div className="rodash-card-head">
+            <h3>Disaster response coverage</h3>
+            <p>
+              Pick a disaster to open only the teams registered for it, or see
+              every team under {data.organization.name}
+            </p>
+          </div>
+
+          <div className="rodash-disaster-grid">
+            <button
+              type="button"
+              className="rodash-disaster-card rodash-disaster-card-all"
+              onClick={() => onOpenDisaster("all")}
+            >
+              <div className="rodash-disaster-icon">
+                <Layers size={18} />
+              </div>
+              <div className="rodash-disaster-body">
+                <h4>All teams</h4>
+                <p>
+                  {data.teams.length} team{data.teams.length === 1 ? "" : "s"}{" "}
+                  across {coverage.length} disaster type
+                  {coverage.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <ChevronRight size={16} className="rodash-disaster-arrow" />
+            </button>
+
+            {coverage.map((item) => {
+              const Icon = teamTypeIcon(item.type);
+
+              return (
+                <button
+                  key={item.type}
+                  type="button"
+                  className="rodash-disaster-card"
+                  onClick={() => onOpenDisaster(item.type)}
+                >
+                  <div className="rodash-disaster-icon">
+                    <Icon size={18} />
+                  </div>
+                  <div className="rodash-disaster-body">
+                    <h4>{item.type}</h4>
+                    <p>
+                      {item.teams} team{item.teams === 1 ? "" : "s"} ·{" "}
+                      {item.members} members
+                    </p>
+                    <span
+                      className={`rodash-pill rodash-pill-${
+                        item.available > 0 ? "success" : "neutral"
+                      }`}
+                    >
+                      <BadgeCheck size={12} />
+                      {item.available > 0
+                        ? `${item.available} available now`
+                        : "None available now"}
+                    </span>
+                  </div>
+                  <ChevronRight size={16} className="rodash-disaster-arrow" />
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="rodash-grid">
         <div className="rodash-card">
           <div className="rodash-card-head">
@@ -445,18 +562,30 @@ function availabilityMeta(value: string) {
   return AVAILABILITY_META[value] ?? { label: value, tone: "neutral" };
 }
 
+/**
+ * A team's disaster discipline doubles as the tab it is filed under. Older
+ * records can miss the field, so they stay reachable under a shared label
+ * instead of disappearing from every filtered view.
+ */
+function teamDisaster(team: RescueTeam): string {
+  return String(team.teamType ?? "").trim() || "Not specified";
+}
+
 function TeamsView({
   data,
   token,
+  initialDisaster,
   onOpenOrganization,
   onReviewed,
 }: {
   data: RescueOrganizationDashboard;
   token: string;
+  initialDisaster: string;
   onOpenOrganization: () => void;
   onReviewed: (message: string) => void;
 }) {
   const [filter, setFilter] = useState("all");
+  const [disaster, setDisaster] = useState(initialDisaster);
   const [decision, setDecision] = useState<{
     team: RescueTeam;
     mode: "approve" | "reject";
@@ -465,6 +594,51 @@ function TeamsView({
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /** Disaster tabs are built from the teams actually attached to this org. */
+  const disasters = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    data.teams.forEach((team) => {
+      const type = teamDisaster(team);
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+    });
+
+    return [...counts.entries()]
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
+  }, [data.teams]);
+
+  const visible = data.teams.filter(
+    (team) =>
+      (filter === "all" || team.status === filter) &&
+      (disaster === "all" || teamDisaster(team) === disaster)
+  );
+
+  const filtersActive = filter !== "all" || disaster !== "all";
+
+  /**
+   * Each row of pills is counted against the other row's current choice, so
+   * a badge never promises teams the other filter would then hide.
+   */
+  const statusCount = (key: string) =>
+    data.teams.filter(
+      (team) =>
+        (key === "all" || team.status === key) &&
+        (disaster === "all" || teamDisaster(team) === disaster)
+    ).length;
+
+  const disasterCount = (type: string) =>
+    data.teams.filter(
+      (team) =>
+        (filter === "all" || team.status === filter) &&
+        (type === "all" || teamDisaster(team) === type)
+    ).length;
+
+  const resetFilters = () => {
+    setFilter("all");
+    setDisaster("all");
+  };
 
   if (data.teams.length === 0) {
     return (
@@ -485,11 +659,6 @@ function TeamsView({
       </section>
     );
   }
-
-  const visible =
-    filter === "all"
-      ? data.teams
-      : data.teams.filter((team) => team.status === filter);
 
   const openDecision = (team: RescueTeam, mode: "approve" | "reject") => {
     setActionError(null);
@@ -564,27 +733,85 @@ function TeamsView({
         </div>
       )}
 
-      <div className="rodash-filters">
-        {TEAM_FILTERS.map((item) => {
-          const count =
-            item.key === "all"
-              ? data.teams.length
-              : data.teams.filter((team) => team.status === item.key).length;
+      <div className="rodash-filter-panel">
+        <div className="rodash-filter-block">
+          <div className="rodash-filter-caption">
+            <SlidersHorizontal size={12} />
+            <span>Review status</span>
+          </div>
+          <div className="rodash-filters">
+            {TEAM_FILTERS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`rodash-filter ${
+                  filter === item.key ? "rodash-filter-active" : ""
+                }`}
+                onClick={() => setFilter(item.key)}
+              >
+                {item.label}
+                <span>{statusCount(item.key)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
-          return (
+        <div className="rodash-filter-block">
+          <div className="rodash-filter-caption">
+            <Layers size={12} />
+            <span>Disaster response teams</span>
+          </div>
+          <div className="rodash-filters">
             <button
-              key={item.key}
               type="button"
               className={`rodash-filter ${
-                filter === item.key ? "rodash-filter-active" : ""
+                disaster === "all" ? "rodash-filter-active" : ""
               }`}
-              onClick={() => setFilter(item.key)}
+              onClick={() => setDisaster("all")}
             >
-              {item.label}
-              <span>{count}</span>
+              All disasters
+              <span>{disasterCount("all")}</span>
             </button>
-          );
-        })}
+
+            {disasters.map((item) => {
+              const Icon = teamTypeIcon(item.type);
+
+              return (
+                <button
+                  key={item.type}
+                  type="button"
+                  className={`rodash-filter ${
+                    disaster === item.type ? "rodash-filter-active" : ""
+                  }`}
+                  onClick={() => setDisaster(item.type)}
+                >
+                  <Icon size={13} />
+                  {item.type}
+                  <span>{disasterCount(item.type)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rodash-filter-summary">
+          <p>
+            Showing <strong>{visible.length}</strong> of {data.teams.length}{" "}
+            team{data.teams.length === 1 ? "" : "s"}
+            {disaster === "all"
+              ? ""
+              : ` for ${disaster.toLowerCase()} operations`}
+            {filter === "all"
+              ? ""
+              : ` · ${TEAM_FILTERS.find((item) => item.key === filter)?.label.toLowerCase()}`}
+          </p>
+          {filtersActive && (
+            <button type="button" className="rodash-ghost" onClick={resetFilters}>
+              <X size={14} />
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {actionError && (
@@ -604,9 +831,19 @@ function TeamsView({
           </div>
           <h3>No teams in this view</h3>
           <p>
-            Switch the filter above to see the rest of the teams registered
+            Switch the filters above to see the rest of the teams registered
             under {data.organization.name}.
           </p>
+          {filtersActive && (
+            <button
+              type="button"
+              className="rodash-link"
+              onClick={resetFilters}
+            >
+              Show every team
+              <ChevronRight size={15} />
+            </button>
+          )}
         </section>
       ) : (
         <section className="rodash-team-grid">
@@ -1423,6 +1660,97 @@ const CSS = `
     gap: 20px;
   }
 
+  .rodash-disasters {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .rodash-disaster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+    gap: 14px;
+  }
+
+  .rodash-disaster-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border: 1px solid ${Colors.border};
+    border-radius: 16px;
+    background: ${Colors.background};
+    color: ${Colors.navy};
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+  }
+
+  .rodash-disaster-card:hover {
+    transform: translateY(-2px);
+    border-color: ${Colors.blue};
+    background: ${Colors.white};
+  }
+
+  .rodash-disaster-card:hover .rodash-disaster-arrow {
+    transform: translateX(3px);
+    color: ${Colors.blue};
+  }
+
+  .rodash-disaster-card-all {
+    border-style: dashed;
+  }
+
+  .rodash-disaster-icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    background: ${Colors.white};
+    border: 1px solid ${Colors.border};
+    color: ${Colors.blue};
+  }
+
+  .rodash-disaster-card:hover .rodash-disaster-icon {
+    background: rgba(21, 112, 239, 0.1);
+    border-color: transparent;
+  }
+
+  .rodash-disaster-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .rodash-disaster-body h4 {
+    margin: 0;
+    font-size: 14.5px;
+    font-weight: 800;
+  }
+
+  .rodash-disaster-body p {
+    margin: 0;
+    color: ${Colors.muted};
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .rodash-disaster-body .rodash-pill {
+    align-self: flex-start;
+    margin-top: 3px;
+  }
+
+  .rodash-disaster-arrow {
+    flex-shrink: 0;
+    color: ${Colors.muted};
+    transition: transform 180ms ease, color 180ms ease;
+  }
+
   .rodash-card {
     background: ${Colors.white};
     border: 1px solid ${Colors.border};
@@ -1515,6 +1843,79 @@ const CSS = `
     line-height: 1.6;
   }
 
+  .rodash-filter-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 16px 18px;
+    border: 1px solid ${Colors.border};
+    border-radius: 16px;
+    background: ${Colors.white};
+    box-shadow: 0 8px 22px rgba(11, 31, 51, 0.05);
+  }
+
+  .rodash-filter-block {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .rodash-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 13px;
+    border: 1px solid ${Colors.border};
+    border-radius: 999px;
+    background: ${Colors.white};
+    color: ${Colors.navy};
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: border-color 160ms ease, color 160ms ease;
+  }
+
+  .rodash-ghost:hover {
+    border-color: ${Colors.red};
+    color: ${Colors.red};
+  }
+
+  .rodash-filter-caption {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: ${Colors.muted};
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rodash-filter-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 15px;
+    border: 1px dashed ${Colors.border};
+    border-radius: 12px;
+    background: ${Colors.background};
+  }
+
+  .rodash-filter-summary p {
+    margin: 0;
+    color: ${Colors.muted};
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .rodash-filter-summary strong {
+    color: ${Colors.navy};
+    font-weight: 800;
+  }
+
   .rodash-filters {
     display: flex;
     flex-wrap: wrap;
@@ -1544,6 +1945,10 @@ const CSS = `
     background: ${Colors.background};
     font-size: 11px;
     text-align: center;
+  }
+
+  .rodash-filter svg {
+    flex-shrink: 0;
   }
 
   .rodash-filter:hover { border-color: ${Colors.blue}; color: ${Colors.blue}; }
@@ -2100,8 +2505,8 @@ const CSS = `
 
   @media (max-width: 1024px) {
     .rodash-app { flex-direction: column; }
-    .rodash-sidebar { width: 100%; padding: 20px; }
-    .rodash-nav { flex-direction: row; overflow-x: auto; }
+    .rodash-sidebar { width: 100%; min-width: 0; flex-shrink: 1; padding: 20px; }
+    .rodash-nav { flex-direction: row; flex-wrap: wrap; overflow-x: visible; }
     .rodash-nav-item { white-space: nowrap; }
     .rodash-nav-item svg:last-child { display: none; }
     .rodash-sidebar-foot { flex-direction: row; align-items: center; justify-content: space-between; }

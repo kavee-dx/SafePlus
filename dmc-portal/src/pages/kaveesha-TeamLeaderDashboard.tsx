@@ -21,6 +21,7 @@ import {
   Pencil,
   Phone,
   RotateCcw,
+  Send,
   ShieldCheck,
   UserRound,
   Users,
@@ -60,6 +61,7 @@ import {
 import { getStoredDmcToken } from "../services/dmc-authApi";
 import { REGISTRATION_FORM_CSS } from "../styles/dushani-registrationFormStyles";
 import { TDASH_CSS } from "../styles/kaveesha-teamDashboardStyles";
+import KaveeshaAssignmentPanel from "../components/kaveesha-AssignmentPanel";
 import type { AuthUser } from "../types/auth";
 import {
   positiveInteger as positiveIntegerRule,
@@ -73,12 +75,16 @@ interface TeamLeaderDashboardProps {
   onLogout: () => void;
 }
 
-type DashboardView = "overview" | "team" | "review";
+type DashboardView = "overview" | "missions" | "team" | "review";
 
 const VIEW_META: Record<DashboardView, { title: string; subtitle: string }> = {
   overview: {
     title: "Team status",
     subtitle: "Where your rescue team registration stands right now",
+  },
+  missions: {
+    title: "Assignments",
+    subtitle: "What the district has tasked your team with, and what you report back",
   },
   team: {
     title: "Team profile",
@@ -92,6 +98,7 @@ const VIEW_META: Record<DashboardView, { title: string; subtitle: string }> = {
 
 const NAV: { view: DashboardView; label: string; icon: typeof Home }[] = [
   { view: "overview", label: "Status", icon: Home },
+  { view: "missions", label: "Assignments", icon: Send },
   { view: "team", label: "Team profile", icon: Users },
   { view: "review", label: "Review & edits", icon: ClipboardList },
 ];
@@ -348,6 +355,10 @@ export default function TeamLeaderDashboard({
                   onAvailability={setAvailability}
                   onOpenReview={() => setCurrentView("review")}
                 />
+              )}
+
+              {currentView === "missions" && (
+                <KaveeshaAssignmentPanel token={token ?? ""} />
               )}
 
               {currentView === "team" && <TeamView data={data} />}
