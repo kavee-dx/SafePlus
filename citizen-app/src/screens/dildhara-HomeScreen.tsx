@@ -19,10 +19,12 @@ import AccountScreen from "./dildhara-AccountScreen";
 import AlertsTab from "./dildhara-AlertsTab";
 import HomeTab from "./dildhara-HomeTab";
 import MyResourcesScreen from "./dildhara-MyResourcesScreen";
+import MyResourceRequestsScreen from "./dildhara-MyResourceRequestsScreen";
 import ProfileScreen from "./dildhara-ProfileScreen";
 import ProvideResourceScreen from "./dildhara-ProvideResourceScreen";
+import RequestResourceScreen from "./dildhara-RequestResourceScreen";
 
-type HomeView = "none" | "resources" | "provide";
+type HomeView = "none" | "resources" | "provide" | "requests" | "request";
 
 interface HomeScreenProps {
   token: string;
@@ -43,7 +45,6 @@ export default function HomeScreen({
   onSignOut,
   onReportHazard,
   onOpenMyReports,
-  onOpenAlerts,
   onFindReliefCenters,
   onAlertsChanged,
   onAction,
@@ -92,7 +93,23 @@ export default function HomeScreen({
       return;
     }
 
+    if (key === "my-requests") {
+      setView("requests");
+      return;
+    }
+
+    if (key === "request-resource") {
+      setView("request");
+      return;
+    }
+
     onAction?.(key);
+  };
+
+  // Opens the Alerts tab in the bottom navigation
+  const openAlertsTab = () => {
+    setView("none");
+    setTab("alerts");
   };
 
   const renderContent = () => {
@@ -156,13 +173,35 @@ export default function HomeScreen({
       );
     }
 
+    if (view === "requests") {
+      return (
+        <MyResourceRequestsScreen
+          token={token}
+          onBack={() => setView("none")}
+          onRequestResource={() => setView("request")}
+          onSessionExpired={onSignOut}
+        />
+      );
+    }
+
+    if (view === "request") {
+      return (
+        <RequestResourceScreen
+          token={token}
+          onSuccess={() => setView("requests")}
+          onCancel={() => setView("none")}
+          onSessionExpired={onSignOut}
+        />
+      );
+    }
+
     return (
       <HomeTab
         profile={profile}
         onOpenProfile={() => setTab("profile")}
         onReportHazard={onReportHazard}
         onOpenMyReports={onOpenMyReports}
-        onOpenAlerts={onOpenAlerts}
+        onOpenAlerts={openAlertsTab}
         onFindReliefCenters={onFindReliefCenters}
         onAction={handleAction}
         unreadCount={unreadCount}
@@ -196,6 +235,7 @@ export default function HomeScreen({
 
       <BottomTabBar
         active={tab}
+        unreadCount={unreadCount}
         onChange={(next) => {
           setView("none");
           setTab(next);

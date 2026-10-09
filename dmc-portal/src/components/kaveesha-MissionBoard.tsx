@@ -2,10 +2,13 @@ import { useState } from "react";
 import {
   ArrowDownToLine,
   Ban,
+  Check,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Copy,
   Flag,
+  Mail,
   MapPin,
   Navigation,
   Phone,
@@ -112,6 +115,13 @@ export function MissionCard({
             {roll.leaderFullName} · {roll.memberCount} members · tasked{" "}
             {relativeTime(roll.createdAt)}
           </span>
+
+          {/* The leader's own login, spelled out: an officer who wants to watch
+              this mission from the phone side needs the exact account to sign in
+              with, and it should never be a guess. */}
+          {roll.leaderEmail && (
+            <LeaderLoginLine email={roll.leaderEmail} />
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -331,5 +341,79 @@ export function MissionCard({
         )}
       </div>
     </article>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * The team leader's login, shown where an officer can act on it.
+ *
+ * Seeded leaders sign in with their email, so putting the address on the
+ * mission card (with a copy button) lets an officer open the same task on a
+ * phone without hunting through the database.
+ * ------------------------------------------------------------------ */
+
+function LeaderLoginLine({ email }: { email: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* A denied clipboard (insecure context) is not worth bothering the officer about. */
+    }
+  };
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        marginTop: 2,
+        padding: "3px 8px 3px 6px",
+        borderRadius: 8,
+        background: Colors.blueLight,
+        border: `1px solid ${Colors.border}`,
+        alignSelf: "flex-start",
+        maxWidth: "100%",
+      }}
+    >
+      <Mail size={12} color={Colors.blue} style={{ flexShrink: 0 } as React.CSSProperties} />
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 800,
+          color: Colors.blue,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={`${email} — the team leader's login for the mobile app`}
+      >
+        {email}
+      </span>
+      <button
+        type="button"
+        onClick={copy}
+        title="Copy the leader login"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 3,
+          border: "none",
+          background: "transparent",
+          color: copied ? Colors.success : Colors.blue,
+          fontWeight: 800,
+          fontSize: 11,
+          cursor: "pointer",
+          padding: 0,
+        }}
+      >
+        {copied ? <Check size={12} /> : <Copy size={12} />}
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
   );
 }

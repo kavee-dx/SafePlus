@@ -3,14 +3,18 @@ import { Router } from "express";
 import {
   accept,
   cancel,
+  close,
   dispatch,
   dispatches,
   incident,
   incidents,
   mine,
   recommendations,
+  reopen,
   stages,
   status,
+  shelterArrival,
+  stream,
 } from "../controllers/kaveesha-dispatchController";
 import { requireAuth } from "../middlewares/dildhara-requireAuth";
 import { requireDistrictBoard } from "../middlewares/kaveesha-requireDistrictBoard";
@@ -34,12 +38,21 @@ router.get(
 // already decided it is true; this says the district is working it.
 router.post("/incidents/:reportId/accept", requireDistrictBoard, accept);
 router.post("/incidents/:reportId/dispatch", requireDistrictBoard, dispatch);
+// The district's closing line, and the undo for a mis-click on it.
+router.post("/incidents/:reportId/close", requireDistrictBoard, close);
+router.post("/incidents/:reportId/reopen", requireDistrictBoard, reopen);
 router.get("/dispatches", requireDistrictBoard, dispatches);
 router.post("/dispatches/:id/cancel", requireDistrictBoard, cancel);
+
+// Live feed of this officer's district, for the board that watches a mission move.
+router.get("/stream", requireDistrictBoard, stream);
 
 // Team leader: their own assignment, forward only.
 router.get("/mine", requireTeamLeader, mine);
 router.post("/dispatches/:id/status", requireTeamLeader, status);
+// Leader taps "we reached the shelter" after a completed rescue; this flags the
+// group so the shelter desk knows people are at the door before confirmation.
+router.post("/dispatches/:id/shelter-arrival", requireTeamLeader, shelterArrival);
 
 // Shared: the stage names, so a client never keeps its own copy.
 router.get("/stages", stages);

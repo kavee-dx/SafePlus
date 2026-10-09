@@ -6,17 +6,22 @@ import {
   advanceByLeader,
   buildOfficerContext,
   cancelDispatch,
+  closeIncident,
   dispatchStatusCatalog,
   dispatchTeam,
   incidentDetail,
+  leaderReportsShelterArrival,
   leaderWorkspace,
   listIncidents,
   officerOperations,
   recommendForIncident,
+  reopenIncident,
 } from "../services/kaveesha-dispatchService";
+import { subscribeDispatchEvents } from "../services/kaveesha-dispatchEvents";
 import { findIncident } from "../repositories/kaveesha-dispatchRepository";
 import {
   validateAcceptance,
+  validateClosure,
   validateDispatch,
   validateReason,
   validateStatus,
@@ -156,6 +161,93 @@ export async function cancel(req: Request, res: Response): Promise<void> {
   });
 }
 
+/** POST /api/rescue-dispatch/incidents/:reportId/close */
+export async function close(req: Request, res: Response): Promise<void> {
+  const context = await buildOfficerContext(req.user!.sub, req.user!.role);
+  const { note } = validateClosure(req.body);
+
+  const incident = await closeIncident(context, param(req.params.reportId), note);
+
+  res.json({
+    message: `${incident.reportId} is closed for ${incident.locationDistrict}: ${incident.totalRescued} rescued, ${incident.totalEvacuated} evacuated.`,
+    incident,
+  });
+}
+
+/** POST /api/rescue-dispatch/incidents/:reportId/reopen */
+export async function reopen(req: Request, res: Response): Promise<void> {
+  const context = await buildOfficerContext(req.user!.sub, req.user!.role);
+  const incident = await reopenIncident(context, param(req.params.reportId));
+
+  res.json({
+    message: `${incident.reportId} is back on the ${incident.locationDistrict} desk.`,
+    incident,
+  });
+}
+
+/**
+ * GET /api/rescue-dispatch/stream
+ *
+ * A live feed of the officer's own district: every stage a team leader taps on a
+ * phone and every closure lands here the moment it is written. Deliberately not
+ * a websocket — a plain streamed response needs no new dependency and no new
+ * server wiring, and the board still polls as a fallback, so a dropped stream is
+ * a slower update rather than a blind control room.
+ *
+ * The token arrives in the Authorization header, which is why the portal reads
+ * this with fetch and its response stream instead of EventSource: an
+ * EventSource cannot send a header, and a token in a query string ends up in
+ * access logs.
+ */
+export async function stream(req: Request, res: Response): Promise<void> {
+  const context = await buildOfficerContext(req.user!.sub, req.user!.role);
+
+  res.status(200);
+  res.set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    // nginx must not buffer this, and no proxy may rewrite the chunks.
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders();
+
+  let open = true;
+
+  const write = (payload: unknown): void => {
+    if (!open || res.writableEnded) return;
+
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  const unsubscribe = subscribeDispatchEvents(context.district, (event) =>
+    write(event)
+  );
+
+  write({
+    kind: "hello",
+    district: context.district ?? "ALL",
+    message: context.district
+      ? `Watching ${context.district} District.`
+      : "Watching every district.",
+    at: new Date().toISOString(),
+  });
+
+  // A comment frame every 20s keeps an idle connection alive through any proxy
+  // that drops quiet streams, and tells the client the socket is still ours.
+  const keepAlive = setInterval(() => {
+    if (!open || res.writableEnded) return;
+
+    res.write(": keep-alive\n\n");
+  }, 20_000);
+
+  req.on("close", () => {
+    open = false;
+    clearInterval(keepAlive);
+    unsubscribe();
+  });
+}
+
 /** GET /api/rescue-dispatch/mine — the team leader's assignment board. */
 export async function mine(_req: Request, res: Response): Promise<void> {
   const userId = actor(_req).userId;
@@ -196,6 +288,30 @@ export async function status(req: Request, res: Response): Promise<void> {
     message: `${roll.dispatchCode} is now ${roll.status}.`,
     dispatch: roll,
     nextStatuses: roll.status === "COMPLETED" ? [] : undefined,
+  });
+}
+
+/**
+ * POST /api/rescue-dispatch/dispatches/:id/shelter-arrival — the team leader's
+ * "we reached the shelter" tap. It flags the group as ARRIVAL_REPORTED so the
+ * shelter desk knows people are at the door; the Shelter Manager still confirms
+ * the headcount before occupancy actually rises.
+ */
+export async function shelterArrival(req: Request, res: Response): Promise<void> {
+  const userId = actor(req).userId;
+  const reference = param(req.params.id);
+  const dispatchId =
+    reference === "" || reference.toLowerCase() === "current"
+      ? undefined
+      : reference;
+
+  const { dispatch, group } = await leaderReportsShelterArrival(userId, dispatchId);
+
+  res.json({
+    message: group
+      ? `Arrival reported for ${dispatch.dispatchCode}. A shelter manager will confirm the headcount.`
+      : `Arrival reported for ${dispatch.dispatchCode}. No shelter group was attached to this mission.`,
+    group,
   });
 }
 

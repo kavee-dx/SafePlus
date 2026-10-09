@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
+  Building2,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
@@ -34,6 +35,7 @@ import { teamTypeIcon } from "../constants/kaveesha-rescueTeamOptions";
 import KaveeshaDistrictRescueBoard from "../components/kaveesha-DistrictRescueBoard";
 import KaveeshaIncidentDesk from "../components/kaveesha-IncidentDesk";
 import KaveeshaIncidentResponse from "../components/kaveesha-IncidentResponse";
+import KaveeshaShelterArea from "../components/kaveesha-ShelterArea";
 
 interface DistrictOfficerDashboardProps {
   officer: AuthUser;
@@ -44,7 +46,7 @@ interface DistrictOfficerDashboardProps {
  * "response" is not a place in the sidebar — it is the page one incident opens
  * into from the desk, so it is navigated to rather than navigated by.
  */
-type DashboardView = "overview" | "teams" | "desk" | "response" | "profile";
+type DashboardView = "overview" | "teams" | "desk" | "response" | "shelter" | "profile";
 
 interface OfficerIdentity {
   fullName: string;
@@ -75,6 +77,11 @@ const VIEW_META: Record<DashboardView, { title: string; subtitle: string }> = {
     title: "Incident response",
     subtitle:
       "One verified incident, its map point, the teams you have sent and the ones you can still send",
+  },
+  shelter: {
+    title: "Shelter coordination",
+    subtitle:
+      "Register shelters and their capacity, allocate waiting groups to the nearest rooms, and create the managers who confirm arrivals",
   },
   profile: {
     title: "My profile",
@@ -194,6 +201,7 @@ export default function KaveeshaDistrictOfficerDashboard({
     { view: "overview", label: "Overview", icon: Home },
     { view: "teams", label: "Rescue force", icon: Users },
     { view: "desk", label: "Incident desk", icon: Inbox },
+    { view: "shelter", label: "Shelters", icon: Building2 },
     { view: "profile", label: "My profile", icon: User },
   ];
 
@@ -416,6 +424,22 @@ export default function KaveeshaDistrictOfficerDashboard({
                   </button>
                 </div>
               </div>
+            ))}
+
+          {currentView === "shelter" &&
+            (!profile && !profileError ? (
+              <div className="kdash-loading">
+                <Loader2 className="kdash-spin" size={17} /> Reading your
+                assignment…
+              </div>
+            ) : (
+              /* Keyed by district so the shelter area opens on the right scope
+                 even when the profile arrives after this view is first shown. */
+              <KaveeshaShelterArea
+                key={`shelter-${identity.district}-${refreshKey}`}
+                token={token}
+                district={identity.district}
+              />
             ))}
 
           {currentView === "profile" && <ProfileView identity={identity} />}

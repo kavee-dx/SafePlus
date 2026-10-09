@@ -56,6 +56,7 @@ import {
   severityPill,
   skippedCopy,
 } from "../styles/dushani-dataStyles";
+import { CONSOLE_THEME } from "../styles/dushani-consoleTheme";
 import ReportCenter from "./amasha-ReportCenter";
 import ClearancePinCard from "../components/dushani-ClearancePinCard";
 import ProfilePage from "./dildhara-ProfilePage";
@@ -109,6 +110,7 @@ export default function DmcOfficerDashboard({
   const [currentView, setCurrentView] = useState<DashboardView>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [wizardReportId, setWizardReportId] = useState<string | undefined>();
+  const [wizardWarningId, setWizardWarningId] = useState<string | undefined>();
   const [wizardKey, setWizardKey] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [displayName, setDisplayName] = useState(officer.fullName);
@@ -144,8 +146,9 @@ export default function DmcOfficerDashboard({
   // Only a DMC officer may broadcast; a district officer verifies reports.
   const canIssue = officer.role === "DMC_OFFICER";
 
-  const openWizard = (reportId?: string) => {
+  const openWizard = (reportId?: string, warningId?: string) => {
     setWizardReportId(reportId);
+    setWizardWarningId(warningId);
     setWizardKey((key) => key + 1);
     setCurrentView("issue");
   };
@@ -255,7 +258,7 @@ export default function DmcOfficerDashboard({
               key={refreshKey}
               canIssue={canIssue}
               onVerifyReports={() => go("reports")}
-              onIssueWarning={() => openWizard()}
+              onIssueWarning={(warningId) => openWizard(undefined, warningId)}
             />
           )}
 
@@ -267,6 +270,7 @@ export default function DmcOfficerDashboard({
             <WarningWizard
               key={wizardKey}
               initialReportId={wizardReportId}
+              initialWarningId={wizardWarningId}
               onExit={() => go("overview")}
               onSetupPin={() => go("pin")}
               onViewHistory={() => go("history")}
@@ -274,7 +278,10 @@ export default function DmcOfficerDashboard({
           )}
 
           {currentView === "history" && (
-            <HistoryView key={refreshKey} onIssueWarning={() => openWizard()} />
+            <HistoryView
+              key={refreshKey}
+              onIssueWarning={(warningId) => openWizard(undefined, warningId)}
+            />
           )}
 
           {currentView === "pin" && <ClearancePinCard />}
@@ -299,6 +306,7 @@ export default function DmcOfficerDashboard({
         </div>
       </main>
 
+      <style>{CONSOLE_THEME}</style>
       <style>{DASHBOARD_STYLES}</style>
     </div>
   );
@@ -311,7 +319,7 @@ function OverviewView({
 }: {
   canIssue: boolean;
   onVerifyReports: () => void;
-  onIssueWarning: () => void;
+  onIssueWarning: (warningId?: string) => void;
 }) {
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [pending, setPending] = useState<HazardReport[]>([]);
@@ -352,6 +360,7 @@ function OverviewView({
   const drafts = warnings.filter(
     (warning) => warning.status === "DRAFT" || warning.status === "PENDING_DISPATCH"
   );
+  const resumableDrafts = drafts.filter((warning) => warning.status === "DRAFT");
   const delivered = warnings.reduce(
     (total, warning) =>
       total + (warning.broadcastLogs ?? []).reduce((sum, log) => sum + log.deliveryCount, 0),
@@ -359,7 +368,7 @@ function OverviewView({
   );
 
   return (
-    <div className="dmc-overview">
+    <div className="dmc-overview dq-console">
       {loading && (
         <div className="dmc-loading">
           <Loader2 className="dmc-spin" size={18} /> Reading live alert data…
@@ -425,21 +434,76 @@ function OverviewView({
                 <div className="dmc-action-row">
                   <div>
                     <h3>
-                      {drafts.length} draft warning{drafts.length === 1 ? "" : "s"} waiting
+                      {resumableDrafts.length} draft warning
+                      {resumableDrafts.length === 1 ? "" : "s"} waiting
                     </h3>
-                    <p>A draft still needs its PIN authorization to go out.</p>
+                    <p>
+                      A draft is already saved. Open it, enter the clearance PIN
+                      and it goes out.
+                    </p>
                   </div>
                   {canIssue && (
                     <button
                       type="button"
-                      className="dmc-action-button dmc-action-button-primary"
-                      onClick={onIssueWarning}
+                      className="dmc-action-button"
+                      onClick={() => onIssueWarning()}
                     >
-                      Issue warning
+                      <Megaphone size={14} /> New warning
                     </button>
                   )}
                 </div>
               </div>
+
+              {resumableDrafts.length > 0 && (
+                <div className="dmc-alert-list dmc-draft-list">
+                  {resumableDrafts.map((draft) => (
+                    <article
+                      key={draft.id}
+                      className={`dmc-alert-item dmc-alert-${tone(draft.status)}`}
+                    >
+                      <div className="dmc-alert-status">
+                        {humanize(draft.status)}
+                      </div>
+                      <div className="dmc-alert-details">
+                        <div className="dmc-alert-title">
+                          {humanize(draft.hazardType)} warning
+                        </div>
+                        <div className="sp-facts">
+                          <span className="sp-fact">
+                            <span className="sp-label">District</span>
+                            <span className="sp-value">{draft.targetDistrict}</span>
+                          </span>
+                          <span className="sp-fact">
+                            <span className="sp-label">Severity</span>
+                            <span className={`sp-pill ${severityPill(draft.severityLevel)}`}>
+                              {humanize(draft.severityLevel)}
+                            </span>
+                          </span>
+                          <span className="sp-fact">
+                            <span className="sp-label">Reference</span>
+                            <span className="sp-value sp-mono">{draft.warningId}</span>
+                          </span>
+                          <span className="sp-fact">
+                            <span className="sp-label">Saved</span>
+                            <span className="sp-value">
+                              {relativeTime(draft.updatedAt)}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                      {canIssue && (
+                        <button
+                          type="button"
+                          className="dmc-action-button dmc-action-button-primary"
+                          onClick={() => onIssueWarning(draft.warningId)}
+                        >
+                          Issue warning
+                        </button>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="dmc-panel">
@@ -612,7 +676,11 @@ function deliverySummary(logs: BroadcastLog[]): { label: string; pill: string } 
   return { label: "All channels ran", pill: "sp-pill-green" };
 }
 
-function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
+function HistoryView({
+  onIssueWarning,
+}: {
+  onIssueWarning: (warningId?: string) => void;
+}) {
   const [warnings, setWarnings] = useState<DisasterWarning[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -701,7 +769,7 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
   );
 
   return (
-    <div className="dmc-history">
+    <div className="dmc-history dq-console">
       <div className="dmc-panel-head">
         <div className="sp-stack">
           <div className="sp-facts">
@@ -734,7 +802,7 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
           <button
             type="button"
             className="dmc-action-button dmc-action-button-primary"
-            onClick={onIssueWarning}
+            onClick={() => onIssueWarning()}
           >
             <Megaphone size={14} /> New warning
           </button>
@@ -1019,6 +1087,25 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
                       )}
                     </dl>
                   </div>
+
+                  {warning.status === "DRAFT" && (
+                    <div className="dmc-detail-block dmc-detail-actions">
+                      <h4>Actions</h4>
+
+                      <p>
+                        Saved but never sent. It needs the clearance PIN before
+                        it can reach anyone.
+                      </p>
+
+                      <button
+                        type="button"
+                        className="dmc-action-button dmc-action-button-primary"
+                        onClick={() => onIssueWarning(warning.warningId)}
+                      >
+                        <Megaphone size={14} /> Issue warning
+                      </button>
+                    </div>
+                  )}
 
                   {(warning.status === "ACTIVE" ||
                     warning.status === "EXPIRED" ||

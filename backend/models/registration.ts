@@ -13,7 +13,8 @@ export type UserRole =
   | "INDEPENDENT_TEAM_LEADER"
   | "DISTRICT_OFFICER"
   | "COORDINATOR"
-  | "DMC_OFFICER";
+  | "DMC_OFFICER"
+  | "SHELTER_MANAGER";
 
 export type AccountStatus =
   | "ACTIVE"
@@ -38,6 +39,8 @@ export const ROLE_INTERFACES: Record<UserRole, readonly InterfaceAccess[]> = {
   DISTRICT_OFFICER: ["DMC_PORTAL"],
   COORDINATOR: ["DMC_PORTAL"],
   DMC_OFFICER: ["DMC_PORTAL"],
+  // Officer-created only; signs in to the portal to run one or more shelters.
+  SHELTER_MANAGER: ["DMC_PORTAL"],
 };
 
 export const INTERFACE_LABELS: Record<InterfaceAccess, string> = {
@@ -1112,4 +1115,5 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   DISTRICT_OFFICER: "District Officer",
   COORDINATOR: "Coordinator",
   DMC_OFFICER: "DMC Officer",
+  SHELTER_MANAGER: "Shelter Manager",
 };

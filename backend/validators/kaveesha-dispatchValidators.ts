@@ -225,3 +225,23 @@ export function validateAcceptance(body: unknown): { note?: string } {
 
   return note ? { note } : {};
 }
+
+const MAX_CLOSURE = 400;
+
+/**
+ * Closing an incident the district has finished with. The note is what a later
+ * reader needs — who was handed over to, whether the citizen was reached, why no
+ * team went — so it is bounded generously and never silently dropped.
+ */
+export function validateClosure(body: unknown): { note?: string } {
+  const source = body === undefined || body === null ? {} : asObject(body);
+  const errors: Field = {};
+
+  const note = optionalText(source, "note", "Closing note", errors, MAX_CLOSURE);
+
+  if (Object.keys(errors).length > 0) {
+    fail("The closing note could not be read.", errors);
+  }
+
+  return note ? { note } : {};
+}

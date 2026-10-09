@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { Bell, Check, RefreshCw } from "lucide-react";
 
-import { Colors } from "../constants/theme";
+import { Console, ConsoleTokens } from "../styles/dushani-consoleTheme";
 import { fetchNotifications, markNotificationRead } from "../services/dushani-alertApi";
 import type { PortalNotification } from "../types/hazardReport";
 
-const Hairline = "#EAECF0";
-const Divider = "#F2F4F7";
-const Surface = "#F9FAFB";
-const RedTint = "#FEF3F2";
-const ShadowCard =
-  "0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06)";
-const ShadowRaised =
-  "0 4px 12px rgba(16, 24, 40, 0.09), 0 2px 4px rgba(16, 24, 40, 0.05)";
-const ShadowOverlay =
-  "0 24px 48px -12px rgba(16, 24, 40, 0.26), 0 8px 20px -8px rgba(16, 24, 40, 0.16)";
-const FocusRing = "0 0 0 3px rgba(217, 45, 32, 0.16)";
+const Hairline = Console.line;
+const Divider = Console.lineSoft;
+const Surface = Console.surfaceAlt;
+const Card = Console.surface;
+const Ink = Console.ink;
+const InkDim = Console.inkDim;
+const White = "#FFFFFF";
+const Line = Console.line;
+const RedTint = Console.redTint;
+const RedText = Console.redInk;
+const ShadowCard = ConsoleTokens.ShadowCard;
+const ShadowRaised = ConsoleTokens.ShadowRaised;
+const ShadowOverlay = "0 24px 60px -20px rgba(2, 8, 20, 0.9)";
+const FocusRing = ConsoleTokens.FocusRing;
 
 const POLL_INTERVAL_MS = 20_000;
 
@@ -171,13 +174,13 @@ export default function NotificationBell({
             width: 42px;
             height: 42px;
             border: 1px solid ${Hairline};
-            background: ${Colors.white};
+            background: ${Card};
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            color: ${Colors.muted};
+            color: ${InkDim};
             font-family: inherit;
             box-shadow: ${ShadowCard};
             transition: color 140ms ease, border-color 140ms ease,
@@ -185,8 +188,8 @@ export default function NotificationBell({
           }
 
           .bell-button:hover {
-            border-color: ${Colors.navy};
-            color: ${Colors.navy};
+            border-color: ${Console.blueSoft};
+            color: ${Console.blueInk};
             box-shadow: ${ShadowRaised};
             transform: translateY(-1px);
           }
@@ -197,15 +200,15 @@ export default function NotificationBell({
 
           .bell-button:focus-visible {
             outline: none;
-            border-color: ${Colors.red};
+            border-color: ${Console.red};
             box-shadow: ${FocusRing};
           }
 
           .bell-open .bell-button,
           .bell-open .bell-button:hover {
-            background: ${Colors.redLight};
-            border-color: ${Colors.red};
-            color: ${Colors.redDark};
+            background: ${RedTint};
+            border-color: ${Console.red};
+            color: ${RedText};
             box-shadow: ${ShadowCard};
             transform: none;
           }
@@ -217,13 +220,13 @@ export default function NotificationBell({
             min-width: 20px;
             height: 20px;
             padding: 0 5px;
-            background: ${Colors.red};
-            color: ${Colors.white};
+            background: ${Console.red};
+            color: ${White};
             font-size: 11px;
             font-weight: 800;
             line-height: 1;
             font-variant-numeric: tabular-nums;
-            border: 2px solid ${Colors.white};
+            border: 2px solid ${Console.surface};
             border-radius: 999px;
             display: flex;
             align-items: center;
@@ -238,12 +241,12 @@ export default function NotificationBell({
             width: 380px;
             max-height: 460px;
             overflow-y: auto;
-            background: ${Colors.white};
+            background: ${Card};
             border: 1px solid ${Hairline};
             border-radius: 16px;
             box-shadow: ${ShadowOverlay};
             z-index: 60;
-            color: ${Colors.text};
+            color: ${Ink};
             font-variant-numeric: tabular-nums;
             animation: bell-panel-in 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
           }
@@ -269,10 +272,10 @@ export default function NotificationBell({
             font-size: 15px;
             font-weight: 800;
             letter-spacing: -0.01em;
-            color: ${Colors.text};
+            color: ${Ink};
             position: sticky;
             top: 0;
-            background: ${Colors.white};
+            background: ${Card};
             z-index: 2;
           }
 
@@ -282,9 +285,9 @@ export default function NotificationBell({
             gap: 6px;
             height: 28px;
             padding: 0 11px;
-            border: 1px solid ${Colors.border};
-            background: ${Colors.white};
-            color: ${Colors.blue};
+            border: 1px solid ${Line};
+            background: ${Card};
+            color: ${Console.blue};
             font-family: inherit;
             font-size: 12px;
             font-weight: 700;
@@ -296,14 +299,14 @@ export default function NotificationBell({
           }
 
           .bell-refresh:hover:not(:disabled) {
-            border-color: ${Colors.navy};
-            color: ${Colors.navy};
+            border-color: ${Console.blueSoft};
+            color: ${Console.blueInk};
             background: ${Surface};
           }
 
           .bell-refresh:focus-visible {
             outline: none;
-            border-color: ${Colors.red};
+            border-color: ${Console.red};
             box-shadow: ${FocusRing};
           }
 
@@ -359,7 +362,7 @@ export default function NotificationBell({
 
           .bell-item:focus-visible {
             outline: none;
-            border-color: ${Colors.red};
+            border-color: ${Console.red};
             box-shadow: ${FocusRing};
           }
 
@@ -367,14 +370,14 @@ export default function NotificationBell({
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: ${Colors.border};
+            background: ${Line};
             margin-top: 7px;
             flex-shrink: 0;
             transition: background 140ms ease, box-shadow 140ms ease;
           }
 
           .bell-item-unread {
-            background: ${Colors.white};
+            background: ${Card};
           }
 
           .bell-item-unread::before {
@@ -385,12 +388,12 @@ export default function NotificationBell({
             bottom: 12px;
             width: 3px;
             border-radius: 0 3px 3px 0;
-            background: ${Colors.red};
+            background: ${Console.red};
           }
 
           .bell-item-unread .bell-item-dot {
-            background: ${Colors.red};
-            box-shadow: 0 0 0 3px ${Colors.redLight};
+            background: ${Console.red};
+            box-shadow: 0 0 0 3px ${RedTint};
           }
 
           .bell-item-body {
@@ -406,7 +409,7 @@ export default function NotificationBell({
             font-weight: 700;
             letter-spacing: -0.01em;
             line-height: 1.4;
-            color: ${Colors.text};
+            color: ${Ink};
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -416,7 +419,7 @@ export default function NotificationBell({
             font-size: 12px;
             font-weight: 500;
             line-height: 1.5;
-            color: ${Colors.muted};
+            color: ${InkDim};
             overflow: hidden;
             display: -webkit-box;
             -webkit-line-clamp: 2;
@@ -427,12 +430,12 @@ export default function NotificationBell({
             font-size: 11px;
             font-weight: 500;
             letter-spacing: 0.02em;
-            color: ${Colors.muted};
+            color: ${InkDim};
             font-variant-numeric: tabular-nums;
           }
 
           .bell-item-read {
-            color: ${Colors.success};
+            color: ${Console.green};
             margin-top: 5px;
             flex-shrink: 0;
           }
@@ -440,13 +443,13 @@ export default function NotificationBell({
           .bell-empty {
             margin: 12px;
             padding: 22px 18px;
-            border: 1px dashed ${Colors.border};
+            border: 1px dashed ${Line};
             border-radius: 12px;
             background: ${Surface};
             font-size: 13px;
             font-weight: 500;
             line-height: 1.6;
-            color: ${Colors.muted};
+            color: ${InkDim};
             text-align: center;
           }
 
@@ -459,7 +462,7 @@ export default function NotificationBell({
             font-size: 12.5px;
             font-weight: 600;
             line-height: 1.5;
-            color: ${Colors.redDark};
+            color: ${RedText};
           }
 
           @media (prefers-reduced-motion: reduce) {

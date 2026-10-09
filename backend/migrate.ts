@@ -47,6 +47,12 @@ async function migrate() {
       "kaveesha-district_incident_acceptance.sql",
       "dildhara-relief_operations.sql",
       "dildhara-relief_dispatch_tracking.sql"
+      "kaveesha-incident_closure.sql",
+      "kaveesha-shelters.sql",
+      "kaveesha-shelter_managers.sql",
+      "kaveesha-evacuee_groups.sql",
+      "kaveesha-shelter_allocations.sql",
+      "kaveesha-shelter_events.sql"
     ];
 
     for (const file of migrationFiles) {

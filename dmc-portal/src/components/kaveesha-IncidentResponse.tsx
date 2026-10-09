@@ -8,6 +8,7 @@ import {
   Eye,
   Flag,
   Loader2,
+  Lock,
   MapPin,
   Navigation,
   Phone,
@@ -19,6 +20,7 @@ import {
   Sparkles,
   Timer,
   TriangleAlert,
+  Unlock,
   Users,
   X,
 } from "lucide-react";
@@ -30,8 +32,11 @@ import {
   type TeamCandidate,
   acceptIncident,
   cancelMission,
+  closeIncident,
   dispatchTeam,
   fetchIncident,
+  openDispatchStream,
+  reopenIncident,
 } from "../services/kaveesha-dispatchApi";
 import { DISPATCH_CSS, RESPONSE_CSS } from "../styles/kaveesha-dispatchStyles";
 import {
@@ -148,6 +153,16 @@ export default function KaveeshaIncidentResponse({
   const [notice, setNotice] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ url: string; label: string } | null>(null);
   const [showAllExcluded, setShowAllExcluded] = useState(false);
+  /* The live feed: whether the district's stream is held open right now, and the
+     last thing that moved on it. Shown so the officer can trust that what they
+     are reading is the field as it is, not as it was twenty seconds ago. */
+  const [streamUp, setStreamUp] = useState(false);
+  const [liveFeed, setLiveFeed] = useState<string | null>(null);
+  /* The closing ritual. A note is only forced when no team ever went, because
+     the desk has to be able to explain later why nothing was sent. */
+  const [closing, setClosing] = useState(false);
+  const [closePanel, setClosePanel] = useState(false);
+  const [closeNote, setCloseNote] = useState("");
   const sentRef = useRef<HTMLDivElement | null>(null);
 
   const loading = !ready;
@@ -201,6 +216,37 @@ export default function KaveeshaIncidentResponse({
 
     return () => window.clearInterval(beat);
   }, [hasLive]);
+
+  /* The district's live feed. A leader tapping a stage on their phone, or another
+     officer closing an incident, lands here in about a second — so this page
+     re-reads itself the moment something moves instead of waiting for the poll.
+     The 20 s poll above stays as the safety net for when the stream drops. */
+  useEffect(() => {
+    if (!token) return;
+
+    const handle = openDispatchStream({
+      token,
+      onEvent: (event) => {
+        if (event.kind === "hello") return;
+
+        // Only re-read for something that touched *this* incident; the rest of
+        // the district is the desk's business, not this page's.
+        if (!event.reportId || event.reportId === reportId) {
+          setLiveFeed(event.message ?? "Something on this incident moved.");
+          setTick((value) => value + 1);
+        }
+      },
+      // "connecting" fires on the effect's own synchronous path, so it is
+      // ignored — the pill only ever flips from a settled state.
+      onState: (state) => {
+        if (state === "connecting") return;
+
+        setStreamUp(state === "live");
+      },
+    });
+
+    return () => handle.close();
+  }, [token, reportId]);
 
   // "read 8 s ago" — counted in a timer, never from the render path.
   useEffect(() => {
@@ -338,6 +384,65 @@ export default function KaveeshaIncidentResponse({
       );
     } finally {
       setBusyId(null);
+    }
+  };
+
+  /* The district finishes with an incident. Refused while a team is still out, and
+     the note is only demanded when nothing was ever sent — the same rules the
+     server enforces, mirrored here so the officer is not met with a bare 400. */
+  const finishIncident = async () => {
+    const trimmed = closeNote.trim();
+
+    if (missions.length === 0 && trimmed.length === 0) {
+      setActionError(
+        "No team was ever sent to this incident, so a closing note is required — say why it is being wrapped up without one."
+      );
+
+      return;
+    }
+
+    setClosing(true);
+    setActionError(null);
+    setNotice(null);
+
+    try {
+      const finished = await closeIncident(token, reportId, trimmed || undefined);
+
+      setNotice(
+        `${finished.reportId} is closed for ${finished.locationDistrict}. ${finished.totalRescued} rescued · ${finished.totalEvacuated} evacuated — kept on the desk as finished work.`
+      );
+      setClosePanel(false);
+      setCloseNote("");
+      setTick((value) => value + 1);
+    } catch (cause) {
+      setActionError(
+        cause instanceof Error ? cause.message : "The incident could not be closed."
+      );
+    } finally {
+      setClosing(false);
+    }
+  };
+
+  /* Undo a closure. The acceptance and every mission stay exactly as they were;
+     only the closing stamp comes off, so the incident is back on the live desk. */
+  const openAgain = async () => {
+    setClosing(true);
+    setActionError(null);
+    setNotice(null);
+
+    try {
+      const reopened = await reopenIncident(token, reportId);
+
+      setNotice(
+        `${reopened.reportId} is back on the ${reopened.locationDistrict} desk. A team can be tasked again.`
+      );
+      setTick((value) => value + 1);
+    } catch (cause) {
+      setActionError(
+        cause instanceof Error ? cause.message : "The incident could not be reopened."
+      );
+    } finally {
+      setClosing(false);
     }
   };
 
@@ -520,6 +625,13 @@ export default function KaveeshaIncidentResponse({
   const sortedByDanger = SEVERITY_RANK[(detail?.severityLevel ?? "").toUpperCase()] ?? 4;
   const urgent = Boolean(detail?.immediateDanger) || sortedByDanger <= 1;
 
+  /* The three closure facts the page needs. An incident is closed once the
+     district has stamped it; it can be closed once it has been taken on and no
+     team is left out in the field. */
+  const closed = Boolean(detail?.resolvedAt);
+  const accepted = Boolean(detail?.acceptedAt);
+  const canClose = accepted && !hasLive && !closed;
+
   return (
     <div className="kyp-page">
       <div className="kyp-bar">
@@ -534,12 +646,32 @@ export default function KaveeshaIncidentResponse({
           {detail?.locationDistrict ?? district} District
         </span>
 
+        {closed && (
+          <span className="kyp-bar-closed">
+            <Lock size={11} />
+            Closed
+          </span>
+        )}
+
         <span className="kyp-bar-right">
+          <span
+            className={`kyp-stream ${streamUp ? "kyp-stream-on" : ""}`}
+            title={
+              streamUp
+                ? "Connected to the district's live feed. A stage the leader taps on their phone appears here at once."
+                : "The live feed is reconnecting. The page still re-reads on the 20s beat while a team is out."
+            }
+          >
+            <Radio size={11} />
+            {streamUp ? "Live feed" : "Reconnecting"}
+          </span>
           <span className={`kyp-live ${hasLive ? "kyp-live-on" : ""}`}>
-            <Radio size={12} />
+            <Navigation size={12} />
             {hasLive
-              ? `Live — read ${ago < 5 ? "just now" : `${ago}s ago`}`
-              : "No mission running"}
+              ? `${liveMissions.length} out — read ${ago < 5 ? "just now" : `${ago}s ago`}`
+              : closed
+                ? "Finished"
+                : "No mission running"}
           </span>
           <button
             type="button"
@@ -556,6 +688,22 @@ export default function KaveeshaIncidentResponse({
           </button>
         </span>
       </div>
+
+      {/* What just moved, said out loud. A page that updates silently makes an
+          officer doubt it; one line of proof is worth more than a spinner. */}
+      {liveFeed && (
+        <div className="kyp-flash">
+          <Radio size={13} />
+          <span>{liveFeed}</span>
+          <button
+            type="button"
+            className="kdx-btn kdx-btn-sm"
+            onClick={() => setLiveFeed(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {loading && !detail ? (
         <div className="kdx-panel">
@@ -802,6 +950,110 @@ export default function KaveeshaIncidentResponse({
                   </div>
                 </div>
               )}
+
+              {/* A closed incident still tells its whole story — who wrapped it
+                  up, when, and what the teams brought back — and offers the one
+                  undo an officer ever needs: put it back on the live desk. */}
+              {closed && (
+                <div className="kyp-closed">
+                  <div className="kyp-closed-lead">
+                    <CheckCircle2 size={16} />
+                    <span>
+                      <strong>Closed.</strong>{" "}
+                      {detail.resolvedByName
+                        ? `${detail.resolvedByName} wrapped this up `
+                        : "The district wrapped this up "}
+                      {relativeTime(detail.resolvedAt)}
+                      {detail.totalRescued > 0 || detail.totalEvacuated > 0
+                        ? ` — ${detail.totalRescued} rescued · ${detail.totalEvacuated} evacuated.`
+                        : "."}
+                      {detail.resolutionNote ? (
+                        <em className="kyp-closed-note">“{detail.resolutionNote}”</em>
+                      ) : null}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="kdx-btn kdx-btn-sm"
+                    onClick={() => void openAgain()}
+                    disabled={closing}
+                  >
+                    {closing ? (
+                      <Loader2 size={13} className="kdx-spin" />
+                    ) : (
+                      <Unlock size={13} />
+                    )}
+                    Reopen the incident
+                  </button>
+                </div>
+              )}
+
+              {/* The closing line is only offered once every team is back. A
+                  mission still running means there is nothing to close yet. */}
+              {canClose && (
+                <div className="kyp-close">
+                  <div className="kyp-close-lead">
+                    <Flag size={16} />
+                    <span>
+                      <strong>Every team is back.</strong> Nothing is out in the field
+                      on {detail.reportId} any more.
+                      {missions.length === 0
+                        ? " No team was ever sent here, so a closing note is required before you wrap it up."
+                        : ` ${detail.totalRescued} rescued · ${detail.totalEvacuated} evacuated across ${missions.length} mission${
+                            missions.length === 1 ? "" : "s"
+                          }.`}
+                    </span>
+                  </div>
+
+                  {closePanel ? (
+                    <div className="kyp-close-row">
+                      <input
+                        className="kdx-input"
+                        placeholder={
+                          missions.length === 0
+                            ? "Why is this being closed with no team sent? (required)"
+                            : "Closing note for the record (optional)"
+                        }
+                        value={closeNote}
+                        maxLength={400}
+                        onChange={(event) => setCloseNote(event.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="kdx-btn kdx-btn-close"
+                        disabled={closing}
+                        onClick={() => void finishIncident()}
+                      >
+                        {closing ? (
+                          <Loader2 size={14} className="kdx-spin" />
+                        ) : (
+                          <Lock size={14} />
+                        )}
+                        Confirm closure
+                      </button>
+                      <button
+                        type="button"
+                        className="kdx-btn kdx-btn-sm"
+                        onClick={() => {
+                          setClosePanel(false);
+                          setCloseNote("");
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="kdx-btn kdx-btn-close"
+                      onClick={() => setClosePanel(true)}
+                    >
+                      <Lock size={14} />
+                      Close the incident
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 
@@ -857,7 +1109,9 @@ export default function KaveeshaIncidentResponse({
               </span>
               <span className="kyp-section-sub">
                 {liveMissions.length > 0
-                  ? `${liveMissions.length} live · updates every ${LIVE_POLL_MS / 1000}s`
+                  ? `${liveMissions.length} live · ${
+                      streamUp ? "streaming as the leader updates" : `re-read every ${LIVE_POLL_MS / 1000}s`
+                    }`
                   : missions.length > 0
                     ? `${missions.length} mission${missions.length === 1 ? "" : "s"} closed`
                     : "nothing sent yet"}
