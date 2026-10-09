@@ -493,7 +493,7 @@ if (resourcePage === "myRequests") {
     </Pressable>
   </Section>
 ) : null}
-      {canProvideResources ? (
+      {/* {canProvideResources ? ( */}
       {/* {canProvideResources ? (
   <Section title="Relief Resources">
     <Text className="mb-3 text-sm leading-5 text-safeplus-muted">
