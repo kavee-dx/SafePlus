@@ -14,6 +14,8 @@ export const Colors = {
   muted: "#667085",
   border: "#D0D5DD",
   success: "#12B76A",
+  blueDark: "#0B5FCD",
+  amberText: "#7A5310",
 } as const;
 
 export const Typography = {

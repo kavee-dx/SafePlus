@@ -27,7 +27,28 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "SafePlus uses your location to attach GPS coordinates to an incident report."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "SafePlus uses your photos as optional evidence on incident reports.",
+          "cameraPermission": "SafePlus uses the camera so you can attach photo or video evidence."
+        }
+      ],
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
     ]
   }
 }

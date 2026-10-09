@@ -19,7 +19,40 @@ async function migrate() {
     // Explicit dependency order
     const migrationFiles = [
       "users.sql",
-      "disasters.sql"
+      "disasters.sql",
+      "users_registration_columns.sql",
+      "delivery_volunteers.sql",
+      "delivery_volunteer_teams.sql",
+      "relief_agencies.sql",
+      "dildhara-relief_resources.sql",
+      "dildhara-resource_requests.sql",
+      "organization_admins.sql",
+      "kaveesha-rescue_organizations.sql",
+      "team_leaders.sql",
+      "kaveesha-rescue_team_columns.sql",
+      "district_officers.sql",
+      "dmc_officers.sql",
+      "hazard_reports.sql",
+      "disaster_warnings.sql",
+      "dmc_officer_clearance_pin.sql",
+      "users_alert_targets.sql",
+      "alert_sms_messages.sql",
+      "amasha-super_admins.sql",
+      "amasha-users_verification_columns.sql",
+      "amasha-hazard_report_uc02.sql",
+      "warning_expiry.sql",
+      "warning_audit_delete_action.sql",
+      "broadcast_status_skipped.sql",
+      "kaveesha-rescue_dispatch.sql",
+      "kaveesha-district_incident_acceptance.sql",
+      "dildhara-relief_operations.sql",
+      "dildhara-relief_dispatch_tracking.sql",
+      "kaveesha-incident_closure.sql",
+      "kaveesha-shelters.sql",
+      "kaveesha-shelter_managers.sql",
+      "kaveesha-evacuee_groups.sql",
+      "kaveesha-shelter_allocations.sql",
+      "kaveesha-shelter_events.sql"
     ];
 
     for (const file of migrationFiles) {
