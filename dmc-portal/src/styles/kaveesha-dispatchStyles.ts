@@ -677,6 +677,10 @@ export const DISPATCH_CSS = `
     box-shadow: 0 32px 80px rgba(11, 31, 51, 0.4);
   }
 
+  .kdx-modal-wide {
+    width: min(900px, 100%);
+  }
+
   .kdx-modal-head {
     display: flex;
     align-items: flex-start;

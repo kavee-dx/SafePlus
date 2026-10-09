@@ -10,6 +10,7 @@ import {
   dispatchStatusCatalog,
   dispatchTeam,
   incidentDetail,
+  leaderReportsShelterArrival,
   leaderWorkspace,
   listIncidents,
   officerOperations,
@@ -287,6 +288,30 @@ export async function status(req: Request, res: Response): Promise<void> {
     message: `${roll.dispatchCode} is now ${roll.status}.`,
     dispatch: roll,
     nextStatuses: roll.status === "COMPLETED" ? [] : undefined,
+  });
+}
+
+/**
+ * POST /api/rescue-dispatch/dispatches/:id/shelter-arrival — the team leader's
+ * "we reached the shelter" tap. It flags the group as ARRIVAL_REPORTED so the
+ * shelter desk knows people are at the door; the Shelter Manager still confirms
+ * the headcount before occupancy actually rises.
+ */
+export async function shelterArrival(req: Request, res: Response): Promise<void> {
+  const userId = actor(req).userId;
+  const reference = param(req.params.id);
+  const dispatchId =
+    reference === "" || reference.toLowerCase() === "current"
+      ? undefined
+      : reference;
+
+  const { dispatch, group } = await leaderReportsShelterArrival(userId, dispatchId);
+
+  res.json({
+    message: group
+      ? `Arrival reported for ${dispatch.dispatchCode}. A shelter manager will confirm the headcount.`
+      : `Arrival reported for ${dispatch.dispatchCode}. No shelter group was attached to this mission.`,
+    group,
   });
 }
 

@@ -42,6 +42,11 @@ import {
   notifyLeaderOfTasking,
 } from "./kaveesha-leaderPushService";
 import { publishDispatchEvent } from "./kaveesha-dispatchEvents";
+import type { EvacueeGroup } from "../models/kaveesha-shelter";
+import {
+  createGroupForCompletedDispatch,
+  markGroupArrivalReported,
+} from "./kaveesha-shelterService";
 import type { PushOutcome } from "./kaveesha-leaderPushService";
 import { findOfficerAssignment } from "../repositories/kaveesha-rescueTeamRepository";
 import { ApiError } from "../utils/apiError";
@@ -486,6 +491,42 @@ export async function advanceByLeader(action: LeaderAction): Promise<DispatchRol
   });
 }
 
+/**
+ * A team leader says they have driven the people they rescued to the shelter they
+ * were sent to. It only marks their own team's group as ARRIVAL_REPORTED — the
+ * Shelter Manager still confirms the headcount before occupancy moves — and the
+ * group need not exist if the mission was completed with nobody to shelter.
+ */
+export async function leaderReportsShelterArrival(
+  userId: string,
+  dispatchId?: string
+): Promise<{ dispatch: RescueDispatch; group: EvacueeGroup | null }> {
+  const team = await findTeamByUserId(userId);
+
+  if (!team) {
+    throw new ApiError(404, "No rescue team is attached to this account yet.");
+  }
+
+  const dispatch = dispatchId
+    ? await requireDispatch(dispatchId)
+    : await findLiveDispatchForTeam(team.teamId);
+
+  if (!dispatch) {
+    throw new ApiError(404, "This team has no mission to report against.");
+  }
+
+  if (dispatch.teamId !== team.teamId) {
+    throw new ApiError(
+      403,
+      "That mission belongs to another team. A leader reports only their own."
+    );
+  }
+
+  const group = await markGroupArrivalReported(dispatch.id);
+
+  return { dispatch, group };
+}
+
 export interface LeaderWorkspace {
   team: { id: string; name: string; availability: string };
   active: DispatchRoll | null;
@@ -562,6 +603,20 @@ async function moveToStatus(
     roll,
     `${roll.teamName} · ${roll.dispatchCode} is now ${roll.status.toLowerCase().replace(/_/g, " ")}.`
   );
+
+  // A completed rescue leaves people who need a bed. Hand them to the shelter
+  // desk as one group, idempotently, so a replayed stage never double-counts.
+  // Best-effort by design: a shelter hiccup must not fail the mission stage that
+  // is already committed, and the desk still sees the mission on its board.
+  if (status === "COMPLETED" && outcome) {
+    try {
+      await createGroupForCompletedDispatch(roll);
+    } catch (error: unknown) {
+      console.warn(
+        `[shelter-handoff] ${roll.dispatchCode}: ${(error as Error)?.message ?? "unknown error"}`
+      );
+    }
+  }
 
   return roll;
 }

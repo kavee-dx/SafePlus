@@ -12,8 +12,8 @@ import FoodDonorRegistrationScreen from "./src/screens/dushani-FoodDonorRegistra
 import DeliveryVolunteerRegistrationScreen from "./src/screens/dushani-DeliveryVolunteerRegistrationScreen";
 import TeamLeaderRegistrationScreen from "./src/screens/dushani-TeamLeaderRegistrationScreen";
 import RegistrationSuccessScreen from "./src/screens/dushani-RegistrationSuccessScreen";
-import CitizenAlertArea from "./src/screens/dushani-CitizenAlertArea";
 import LeaderApp from "./src/screens/kaveesha-LeaderApp";
+import KaveeshaCitizenShelterHost from "./src/screens/kaveesha-CitizenShelterHost";
 
 import type { LoginResult } from "./src/services/dildhara-authApi";
 
@@ -85,7 +85,7 @@ function Screens() {
     }
 
     return (
-      <CitizenAlertArea
+      <KaveeshaCitizenShelterHost
         token={session.token}
         account={session.account}
         onSignOut={handleSignOut}

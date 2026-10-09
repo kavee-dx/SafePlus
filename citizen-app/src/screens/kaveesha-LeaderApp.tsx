@@ -10,6 +10,7 @@ import {
   type StageUpdate,
   advanceStage,
   fetchMyWorkspace,
+  reportShelterArrival,
 } from "../services/kaveesha-leaderApi";
 import {
   enableLeaderNotifications,
@@ -118,6 +119,17 @@ export default function KaveeshaLeaderApp({
     }
   };
 
+  /* The leader's "we reached the shelter" tap. It flags the group on the server;
+     we refresh so the board reflects any stage/group change, and hand the server's
+     own message back to the card. Errors bubble to the card to show in place. */
+  const reportArrival = async (): Promise<string> => {
+    const message = await reportShelterArrival(token);
+
+    load();
+
+    return message;
+  };
+
   const availabilityTone = toneForAvailability(workspace?.team.availability);
 
   if (!ready) {
@@ -204,6 +216,7 @@ export default function KaveeshaLeaderApp({
             workspace={workspace}
             busy={busy}
             onStage={submitStage}
+            onReportArrival={reportArrival}
           />
         )}
         {tab === "history" && (

@@ -15,15 +15,19 @@ import type { DispatchStatus } from "../models/kaveesha-rescueDispatch";
 
 export interface DispatchLiveEvent {
   /** What moved, so the board knows which card to re-read. */
-  kind: "dispatch" | "incident";
+  kind: "dispatch" | "incident" | "shelter";
   /** Always the incident district, even for a mutual-aid team. */
   district: string;
-  /** The printed RPT- code, which is what the desk keys its rows on. */
-  reportId: string;
+  /** The printed RPT- code, which is what the desk keys its rows on. A shelter
+   *  event has no incident, so it is absent there. */
+  reportId?: string;
   dispatchCode?: string;
   teamName?: string;
   /** The mission stage, or "CLOSED" for an incident closure. */
   status?: DispatchStatus | "CLOSED" | "REOPENED";
+  /** Set for a shelter event, so the shelter board knows what to re-read. */
+  shelterId?: string;
+  groupCode?: string;
   /** Written to be shown as-is: a toast that needs another lookup is a lag. */
   message: string;
   at: string;

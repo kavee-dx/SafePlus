@@ -34,6 +34,9 @@ interface MissionScreenProps {
   workspace: LeaderWorkspace;
   busy: boolean;
   onStage: (update: StageUpdate) => Promise<void>;
+  /** The "we reached the shelter" tap. Resolves with the server's message;
+   *  throws so the card can show the reason without a second round-trip. */
+  onReportArrival: () => Promise<string>;
 }
 
 /** "just now / 4 min ago / 2 h ago / 3 d ago", said short. */
@@ -76,6 +79,7 @@ export default function KaveeshaLeaderMissionScreen({
   workspace,
   busy,
   onStage,
+  onReportArrival,
 }: MissionScreenProps) {
   const insets = useSafeAreaInsets();
   const active = workspace.active;
@@ -254,6 +258,13 @@ export default function KaveeshaLeaderMissionScreen({
 
       {/* Where the mission is now */}
       <StageTrail roll={active} />
+
+      {/* Once the rescue is done the group needs a roof: report you reached the
+          shelter so the desk knows people are at the door before the manager
+          confirms the headcount. */}
+      {active.status === "COMPLETED" && (
+        <ShelterArrivalCard onReport={onReportArrival} busy={busy} />
+      )}
 
       {/* The action(s) the leader is allowed to take next */}
       <Text className="text-[13px] font-extrabold text-safeplus-navy mt-5 mb-2">
@@ -512,6 +523,89 @@ function StageTrail({ roll }: { roll: MissionRoll }) {
           ? ` · ${roll.peopleRescued ?? 0} rescued, ${roll.peopleEvacuated ?? 0} evacuated`
           : ""}
       </Text>
+    </View>
+  );
+}
+
+function ShelterArrivalCard({
+  onReport,
+  busy,
+}: {
+  onReport: () => Promise<string>;
+  busy: boolean;
+}) {
+  const [state, setState] = useState<"idle" | "sending" | "done">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const report = async () => {
+    if (state === "sending") return;
+
+    setState("sending");
+    setError(null);
+
+    try {
+      const text = await onReport();
+
+      setMessage(text);
+      setState("done");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "That arrival could not be sent. Try again."
+      );
+      setState("idle");
+    }
+  };
+
+  const done = state === "done";
+
+  return (
+    <View className="mt-4 rounded-2xl bg-safeplus-white border border-safeplus-border p-4">
+      <View className="flex-row items-center gap-2">
+        <View className="w-9 h-9 rounded-full bg-safeplus-lightBlue items-center justify-center">
+          <Ionicons name="business-outline" size={18} color="#1570EF" />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[15px] font-extrabold text-safeplus-navy">
+            Brought everyone to a shelter
+          </Text>
+          <Text className="text-[12.5px] text-safeplus-muted mt-0.5 leading-[17px]">
+            Take the group to the shelter the district assigned, then tap to tell
+            them you have arrived. The shelter manager confirms the headcount.
+          </Text>
+        </View>
+      </View>
+
+      {done && message ? (
+        <View className="mt-3 px-3.5 py-2.5 rounded-xl bg-safeplus-paleGreen border border-safeplus-lightGreen">
+          <Text className="text-[12.5px] font-semibold text-safeplus-darkGreen">
+            {message}
+          </Text>
+        </View>
+      ) : (
+        <Pressable
+          onPress={() => void report()}
+          disabled={busy || state === "sending"}
+          accessibilityRole="button"
+          className={
+            "mt-3 flex-row items-center justify-center gap-2 h-12 rounded-2xl active:opacity-90 " +
+            (state === "sending" ? "bg-safeplus-border" : "bg-safeplus-navy")
+          }
+        >
+          {state === "sending" ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
+          )}
+          <Text className="text-[14px] font-extrabold text-white">
+            {state === "sending" ? "Reporting…" : "Report arrival at shelter"}
+          </Text>
+        </Pressable>
+      )}
+
+      {error && (
+        <Text className="text-[12.5px] font-semibold text-safeplus-red mt-2">{error}</Text>
+      )}
     </View>
   );
 }

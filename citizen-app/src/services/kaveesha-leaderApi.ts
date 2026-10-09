@@ -192,6 +192,32 @@ export async function advanceStage(
   }
 }
 
+/**
+ * The leader's "we reached the shelter" tap. It flags the mission's evacuee
+ * group as ARRIVAL_REPORTED so the shelter desk knows people are at the door —
+ * the Shelter Manager still confirms the headcount before occupancy rises. As
+ * with the stage moves, "current" is resolved from the login, so a leader never
+ * needs to know a dispatch id.
+ */
+export async function reportShelterArrival(
+  token: string,
+  dispatchId?: string
+): Promise<string> {
+  const reference = dispatchId && dispatchId.trim() !== "" ? dispatchId.trim() : "current";
+
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/rescue-dispatch/dispatches/${encodeURIComponent(reference)}/shelter-arrival`,
+      {},
+      request(token)
+    );
+
+    return (data?.message ?? "Arrival reported.") as string;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
 /** The team's standing profile and its availability switch. */
 export async function fetchTeamDashboard(token: string): Promise<TeamDashboard> {
   try {

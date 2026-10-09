@@ -13,6 +13,7 @@ import {
   reopen,
   stages,
   status,
+  shelterArrival,
   stream,
 } from "../controllers/kaveesha-dispatchController";
 import { requireAuth } from "../middlewares/dildhara-requireAuth";
@@ -49,6 +50,9 @@ router.get("/stream", requireDistrictBoard, stream);
 // Team leader: their own assignment, forward only.
 router.get("/mine", requireTeamLeader, mine);
 router.post("/dispatches/:id/status", requireTeamLeader, status);
+// Leader taps "we reached the shelter" after a completed rescue; this flags the
+// group so the shelter desk knows people are at the door before confirmation.
+router.post("/dispatches/:id/shelter-arrival", requireTeamLeader, shelterArrival);
 
 // Shared: the stage names, so a client never keeps its own copy.
 router.get("/stages", stages);
