@@ -1,4 +1,8 @@
-import type { NextFunction, Request, Response } from "express";
+import type {
+  NextFunction,
+  Request,
+  Response,
+} from "express";
 
 import { ApiError } from "../utils/apiError";
 
@@ -6,13 +10,10 @@ import {
   editMyResource,
   getMyResource,
   getMyResources,
+  getResourceInventory,
   provideResource,
   removeMyResource,
 } from "../services/dildhara-resourceService";
-
-function getResourceId(value: string | string[] | undefined): string {
-  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
-}
 
 function getAuthenticatedUser(req: Request) {
   if (!req.user) {
@@ -22,6 +23,37 @@ function getAuthenticatedUser(req: Request) {
   return req.user;
 }
 
+function getResourceId(
+  value: string | string[] | undefined
+): string {
+  return Array.isArray(value)
+    ? value[0] ?? ""
+    : value ?? "";
+}
+
+/**
+ * GET central resource inventory.
+ * Coordinator access only.
+ */
+export async function listResourceInventory(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const user = getAuthenticatedUser(req);
+
+    const resources = await getResourceInventory(user.role);
+
+    res.status(200).json({ resources });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST provide a resource.
+ */
 export async function createResource(
   req: Request,
   res: Response,
@@ -45,6 +77,9 @@ export async function createResource(
   }
 }
 
+/**
+ * GET resources belonging to the logged-in provider.
+ */
 export async function listMyResources(
   req: Request,
   res: Response,
@@ -55,14 +90,15 @@ export async function listMyResources(
 
     const resources = await getMyResources(user.sub);
 
-    res.json({
-      resources,
-    });
+    res.status(200).json({ resources });
   } catch (error) {
     next(error);
   }
 }
 
+/**
+ * GET one resource belonging to the logged-in provider.
+ */
 export async function getResource(
   req: Request,
   res: Response,
@@ -76,14 +112,15 @@ export async function getResource(
       getResourceId(req.params.id)
     );
 
-    res.json({
-      resource,
-    });
+    res.status(200).json({ resource });
   } catch (error) {
     next(error);
   }
 }
 
+/**
+ * PATCH/PUT update a provider's resource.
+ */
 export async function updateResource(
   req: Request,
   res: Response,
@@ -99,7 +136,7 @@ export async function updateResource(
       req.body
     );
 
-    res.json({
+    res.status(200).json({
       message: "Resource updated successfully.",
       resource,
     });
@@ -108,6 +145,9 @@ export async function updateResource(
   }
 }
 
+/**
+ * DELETE a provider's available resource.
+ */
 export async function deleteResource(
   req: Request,
   res: Response,
@@ -121,7 +161,7 @@ export async function deleteResource(
       getResourceId(req.params.id)
     );
 
-    res.json({
+    res.status(200).json({
       message: "Resource removed successfully.",
     });
   } catch (error) {

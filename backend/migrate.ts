@@ -24,6 +24,8 @@ async function migrate() {
       "delivery_volunteers.sql",
       "delivery_volunteer_teams.sql",
       "relief_agencies.sql",
+      "dildhara-relief_resources.sql",
+      "dildhara-resource_requests.sql",
       "organization_admins.sql",
       "kaveesha-rescue_organizations.sql",
       "team_leaders.sql",
@@ -43,6 +45,8 @@ async function migrate() {
       "broadcast_status_skipped.sql",
       "kaveesha-rescue_dispatch.sql",
       "kaveesha-district_incident_acceptance.sql",
+      "dildhara-relief_operations.sql",
+      "dildhara-relief_dispatch_tracking.sql"
       "kaveesha-incident_closure.sql",
       "kaveesha-shelters.sql",
       "kaveesha-shelter_managers.sql",

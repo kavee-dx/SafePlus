@@ -7,6 +7,7 @@ import {
   deleteResource,
   findResourceById,
   findResourcesByProvider,
+  findAllResourcesForInventory,
   updateResource,
   type UpdateResourceData,
 } from "../repositories/dildhara-resourceRepository";
@@ -28,8 +29,8 @@ function cleanString(value: unknown): string {
 }
 
 function nullableString(value: unknown): string | null {
-  const valueAsString = cleanString(value);
-  return valueAsString || null;
+  const cleanedValue = cleanString(value);
+  return cleanedValue || null;
 }
 
 function parsePositiveNumber(value: unknown): number {
@@ -70,6 +71,92 @@ function validateProviderRole(role: string): void {
   }
 }
 
+function validateResourceDates(
+  availableFrom: string | null,
+  availableUntil: string | null,
+  expiryDate: string | null
+): void {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (
+    availableFrom &&
+    availableUntil &&
+    new Date(availableUntil) < new Date(availableFrom)
+  ) {
+    throw new ApiError(
+      400,
+      "Available until cannot be earlier than available from."
+    );
+  }
+
+  if (availableFrom && new Date(availableFrom) < today) {
+    throw new ApiError(
+      400,
+      "Available from cannot be a past date."
+    );
+  }
+
+  if (availableUntil && new Date(availableUntil) < today) {
+    throw new ApiError(
+      400,
+      "Available until cannot be a past date."
+    );
+  }
+
+  if (expiryDate && new Date(expiryDate) < today) {
+    throw new ApiError(
+      400,
+      "Expiry date cannot be a past date."
+    );
+  }
+
+  if (
+    availableFrom &&
+    expiryDate &&
+    new Date(expiryDate) < new Date(availableFrom)
+  ) {
+    throw new ApiError(
+      400,
+      "Expiry date cannot be earlier than available from."
+    );
+  }
+
+  if (
+    availableUntil &&
+    expiryDate &&
+    new Date(expiryDate) < new Date(availableUntil)
+  ) {
+    throw new ApiError(
+      400,
+      "Expiry date cannot be earlier than available until."
+    );
+  }
+}
+
+/**
+ * Central inventory for coordinators.
+ *
+ * The repository must return resources from all permitted providers,
+ * rather than only resources belonging to the authenticated user.
+ */
+export async function getResourceInventory(
+  requesterRole: string
+) {
+  if (requesterRole !== "COORDINATOR") {
+    throw new ApiError(
+      403,
+      "Only coordinators can access the central resource inventory."
+    );
+  }
+
+  return findAllResourcesForInventory();
+}
+
+/**
+ * Register a resource contribution from an individual donor
+ * or an approved relief agency.
+ */
 export async function provideResource(
   providerUserId: string,
   providerRole: string,
@@ -117,59 +204,11 @@ export async function provideResource(
     "Expiry date"
   );
 
-  if (
-    availableFrom &&
-    availableUntil &&
-    new Date(availableUntil) < new Date(availableFrom)
-  ) {
-    const today = new Date();
-today.setHours(0, 0, 0, 0);
-
-if (
-  availableFrom &&
-  new Date(availableFrom) < today
-) {
-  throw new ApiError(
-    400,
-    "Available from cannot be a past date."
+  validateResourceDates(
+    availableFrom,
+    availableUntil,
+    expiryDate
   );
-}
-
-if (
-  availableUntil &&
-  new Date(availableUntil) < today
-) {
-  throw new ApiError(
-    400,
-    "Available until cannot be a past date."
-  );
-}
-
-if (
-  expiryDate &&
-  new Date(expiryDate) < today
-) {
-  throw new ApiError(
-    400,
-    "Expiry date cannot be a past date."
-  );
-}
-    throw new ApiError(
-      400,
-      "Available until cannot be earlier than available from."
-    );
-  }
-
-  if (
-    availableFrom &&
-    expiryDate &&
-    new Date(expiryDate) < new Date(availableFrom)
-  ) {
-    throw new ApiError(
-      400,
-      "Expiry date cannot be earlier than available from."
-    );
-  }
 
   return createResource({
     id: crypto.randomUUID(),
@@ -187,15 +226,24 @@ if (
   });
 }
 
+/**
+ * List resources belonging to the authenticated provider.
+ */
 export async function getMyResources(providerUserId: string) {
   return findResourcesByProvider(providerUserId);
 }
 
+/**
+ * Get one resource belonging to the authenticated provider.
+ */
 export async function getMyResource(
   providerUserId: string,
   resourceId: string
 ) {
-  const resource = await findResourceById(resourceId, providerUserId);
+  const resource = await findResourceById(
+    resourceId,
+    providerUserId
+  );
 
   if (!resource) {
     throw new ApiError(404, "Resource not found.");
@@ -204,6 +252,9 @@ export async function getMyResource(
   return resource;
 }
 
+/**
+ * Update one resource belonging to the authenticated provider.
+ */
 export async function editMyResource(
   providerUserId: string,
   providerRole: string,
@@ -212,7 +263,10 @@ export async function editMyResource(
 ) {
   validateProviderRole(providerRole);
 
-  const existing = await findResourceById(resourceId, providerUserId);
+  const existing = await findResourceById(
+    resourceId,
+    providerUserId
+  );
 
   if (!existing) {
     throw new ApiError(404, "Resource not found.");
@@ -234,7 +288,10 @@ export async function editMyResource(
     const value = cleanString(payload.resourceType);
 
     if (!value) {
-      throw new ApiError(400, "Resource type cannot be empty.");
+      throw new ApiError(
+        400,
+        "Resource type cannot be empty."
+      );
     }
 
     changes.resourceType = value;
@@ -244,7 +301,10 @@ export async function editMyResource(
     const value = cleanString(payload.resourceName);
 
     if (!value) {
-      throw new ApiError(400, "Resource name cannot be empty.");
+      throw new ApiError(
+        400,
+        "Resource name cannot be empty."
+      );
     }
 
     changes.resourceName = value;
@@ -313,6 +373,28 @@ export async function editMyResource(
     changes.status = status;
   }
 
+  // Validate the final combination of existing and changed dates.
+  const finalAvailableFrom =
+    changes.availableFrom !== undefined
+      ? changes.availableFrom
+      : existing.available_from;
+
+  const finalAvailableUntil =
+    changes.availableUntil !== undefined
+      ? changes.availableUntil
+      : existing.available_until;
+
+  const finalExpiryDate =
+    changes.expiryDate !== undefined
+      ? changes.expiryDate
+      : existing.expiry_date;
+
+  validateResourceDates(
+    finalAvailableFrom,
+    finalAvailableUntil,
+    finalExpiryDate
+  );
+
   return updateResource(
     resourceId,
     providerUserId,
@@ -320,11 +402,17 @@ export async function editMyResource(
   );
 }
 
+/**
+ * Remove a provider's available resource.
+ */
 export async function removeMyResource(
   providerUserId: string,
   resourceId: string
 ) {
-  const existing = await findResourceById(resourceId, providerUserId);
+  const existing = await findResourceById(
+    resourceId,
+    providerUserId
+  );
 
   if (!existing) {
     throw new ApiError(404, "Resource not found.");
