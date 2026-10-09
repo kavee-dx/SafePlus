@@ -11,7 +11,9 @@ export type AuditAction =
   | "PIN_SET"
   | "SMS_FALLBACK"
   | "STOOD_DOWN"
-  | "NO_COVERAGE";
+  | "NO_COVERAGE"
+  | "EXPIRY_EXTENDED"
+  | "WARNING_DELETED";
 
 export interface AuditEntry {
   warningId: string | null;

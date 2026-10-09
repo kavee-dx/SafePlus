@@ -9,7 +9,12 @@ export type WarningStatus =
 
 export type ChannelType = "push" | "sms" | "siren";
 
-export type BroadcastStatus = "PENDING" | "SUCCESS" | "FAILED" | "PARTIAL";
+export type BroadcastStatus =
+  | "PENDING"
+  | "SUCCESS"
+  | "FAILED"
+  | "PARTIAL"
+  | "SKIPPED";
 
 export type BoundarySource = "DISTRICT" | "CUSTOM";
 
@@ -67,12 +72,19 @@ export interface DisasterWarning {
   estimatedReach?: number;
   startTime?: string;
   expiresAt?: string;
+  expiresInHours?: number;
   createdAt: string;
   updatedAt: string;
   broadcastAt?: string;
   gisPolygon?: GISPolygon;
   broadcastLogs?: BroadcastLog[];
 }
+
+/** Hours the officer may keep a broadcast warning active for. */
+export const WARNING_LIFETIME_HOURS = [1, 3, 6, 12, 24, 48, 72, 168];
+
+/** One extension cannot quietly keep an emergency warning alive forever. */
+export const EXPIRY_EXTENSION_HOURS = [3, 6, 12, 24];
 
 export interface CreateDraftRequest {
   reportId: string;
@@ -85,6 +97,7 @@ export interface CreateDraftRequest {
   sinhalaMessage: string;
   tamilMessage: string;
   channels: ChannelSelection;
+  expiresInHours: number;
 }
 
 export interface AudiencePreview {

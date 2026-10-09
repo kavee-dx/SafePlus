@@ -5,6 +5,8 @@ import {
   parseBoundary,
   validateBroadcast,
   validateDraft,
+  validateExpiryExtension,
+  validateStandDown,
 } from "../validators/dushani-alertValidators";
 import { getWarningService } from "../services/dushani-warningService";
 import { countAudienceByDistrict } from "../repositories/dushani-warningRepository";
@@ -46,6 +48,15 @@ export async function deleteDraft(req: Request, res: Response): Promise<void> {
   await warningService.deleteDraft(publicId(req.params.warningId), req.user!.sub);
 
   res.json({ message: "Draft discarded." });
+}
+
+/**
+ * DELETE /api/warnings/:warningId - delete an issued warning
+ */
+export async function deleteWarning(req: Request, res: Response): Promise<void> {
+  await warningService.deleteIssuedWarning(publicId(req.params.warningId), req.user!.sub);
+
+  res.json({ message: "Warning deleted." });
 }
 
 /**
@@ -97,10 +108,30 @@ export async function broadcastWarning(
 export async function standDown(req: Request, res: Response): Promise<void> {
   const warning = await warningService.standDown(
     req.user!.sub,
-    publicId(req.params.warningId)
+    publicId(req.params.warningId),
+    validateStandDown(req.body).securityPin
   );
 
   res.json({ message: "Warning stood down.", warning });
+}
+
+/**
+ * POST /api/warnings/:warningId/extend-expiry - keep a live warning alive.
+ */
+export async function extendExpiry(req: Request, res: Response): Promise<void> {
+  const { extendByHours, securityPin } = validateExpiryExtension(req.body);
+
+  const warning = await warningService.extendExpiry(
+    req.user!.sub,
+    publicId(req.params.warningId),
+    extendByHours,
+    securityPin
+  );
+
+  res.json({
+    message: `Warning ${warning.warningId} extended.`,
+    warning,
+  });
 }
 
 /**
@@ -141,12 +172,18 @@ export async function synthesizeMessages(
     throw new ApiError(400, "hazardType, severityLevel and targetDistrict are needed.");
   }
 
+  const expiresInHours = req.body?.expiresInHours ? Number(req.body.expiresInHours) : 24;
+  const issuedAt = new Date();
+  const expiresAt = new Date(Date.now() + expiresInHours * 3_600_000);
+
   res.json({
     messages: warningService.synthesizeMessages(
       hazardType,
       severityLevel,
       targetDistrict,
-      req.body?.safetyInstructions ? String(req.body.safetyInstructions) : undefined
+      req.body?.safetyInstructions ? String(req.body.safetyInstructions) : undefined,
+      issuedAt,
+      expiresAt
     ),
   });
 }

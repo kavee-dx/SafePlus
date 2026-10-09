@@ -60,6 +60,9 @@ export interface DeliveredAlert {
   areaLabel: string;
   instruction: string;
   body: string;
+  englishMessage?: string;
+  sinhalaMessage?: string;
+  tamilMessage?: string;
   deliveredAt: string;
   readAt?: string;
   warningStatus: string;

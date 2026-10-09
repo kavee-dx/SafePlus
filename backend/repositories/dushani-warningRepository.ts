@@ -35,6 +35,7 @@ interface WarningRow extends Row {
   estimated_reach: string | number | null;
   start_time: Date | null;
   expires_at: Date | null;
+  expires_in_hours: number | null;
   created_at: Date;
   updated_at: Date;
   broadcast_at: Date | null;
@@ -44,8 +45,8 @@ const WARNING_COLUMNS = `
   SELECT id, warning_id, report_id, hazard_type, severity_level, target_district,
          safety_instructions, status, english_message, sinhala_message, tamil_message,
          channels_push, channels_sms, channels_siren, officer_id, audience_count,
-         sms_recipient_count, estimated_reach, start_time, expires_at, created_at,
-         updated_at, broadcast_at
+         sms_recipient_count, estimated_reach, start_time, expires_at, expires_in_hours,
+         created_at, updated_at, broadcast_at
     FROM disaster_warnings
 `;
 
@@ -74,10 +75,17 @@ export function toWarning(row: WarningRow): DisasterWarning {
       row.estimated_reach === null ? undefined : Number(row.estimated_reach),
     startTime: row.start_time ?? undefined,
     expiresAt: row.expires_at ?? undefined,
+    expiresInHours:
+      row.expires_in_hours === null ? undefined : Number(row.expires_in_hours),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     broadcastAt: row.broadcast_at ?? undefined,
   };
+}
+
+/** A draft previews its expiry; the real countdown starts when it is broadcast. */
+function expiryFromNow(hours?: number): Date | null {
+  return hours ? new Date(Date.now() + hours * 3_600_000) : null;
 }
 
 export async function insertWarning(
@@ -96,9 +104,10 @@ export async function insertWarning(
       `INSERT INTO disaster_warnings (
           warning_id, report_id, hazard_type, severity_level, target_district,
           safety_instructions, status, english_message, sinhala_message, tamil_message,
-          channels_push, channels_sms, channels_siren, officer_id, start_time, expires_at
+          channels_push, channels_sms, channels_siren, officer_id, start_time,
+          expires_in_hours, expires_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, 'DRAFT', $7, $8, $9, $10, $11, $12, $13, NOW(), $14)
+       VALUES ($1, $2, $3, $4, $5, $6, 'DRAFT', $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15)
        RETURNING *`,
       [
         warningId,
@@ -114,9 +123,8 @@ export async function insertWarning(
         data.channels.sms,
         data.channels.siren,
         officerId,
-        data.draftExpiresInHours
-          ? new Date(Date.now() + data.draftExpiresInHours * 3_600_000)
-          : null,
+        data.expiresInHours ?? null,
+        expiryFromNow(data.expiresInHours),
       ]
     );
 
@@ -316,6 +324,10 @@ export async function updateWarning(
   if (data.channels?.push !== undefined) assign("channels_push", data.channels.push);
   if (data.channels?.sms !== undefined) assign("channels_sms", data.channels.sms);
   if (data.channels?.siren !== undefined) assign("channels_siren", data.channels.siren);
+  if (data.expiresInHours !== undefined) {
+    assign("expires_in_hours", data.expiresInHours);
+    assign("expires_at", expiryFromNow(data.expiresInHours));
+  }
 
   params.push(id, officerId);
 
@@ -382,12 +394,30 @@ export async function deleteDraft(id: string, officerId: string): Promise<boolea
 }
 
 /**
+ * Delete an issued warning (ACTIVE, EXPIRED, or STOOD_DOWN) by the issuing officer.
+ */
+export async function deleteIssuedWarning(id: string, officerId: string): Promise<boolean> {
+  const result = await pool.query(
+    `DELETE FROM disaster_warnings
+      WHERE id = $1 AND officer_id = $2 AND status IN ('ACTIVE', 'EXPIRED', 'STOOD_DOWN')
+      RETURNING id`,
+    [id, officerId]
+  );
+
+  return Boolean(result.rows[0]);
+}
+
+/**
  * Draft -> live. Also stores the resolved audience numbers so the telemetry
- * screen can show exactly how many people were targeted.
+ * screen can show exactly how many people were targeted, and restarts the
+ * expiry clock at broadcast: a draft that sat in the wizard overnight must not
+ * expire the moment citizens receive it.
  */
 export async function markBroadcast(
   id: string,
-  audience: { audienceCount: number; smsRecipientCount: number; estimatedReach: number }
+  audience: { audienceCount: number; smsRecipientCount: number; estimatedReach: number },
+  expiresAt: Date,
+  messages?: { english: string; sinhala: string; tamil: string }
 ): Promise<DisasterWarning | null> {
   const result = await pool.query(
     `UPDATE disaster_warnings
@@ -397,15 +427,63 @@ export async function markBroadcast(
             estimated_reach = $4,
             start_time = NOW(),
             broadcast_at = NOW(),
-            updated_at = NOW()
+            expires_at = $5,
+            updated_at = NOW(),
+            english_message = COALESCE($6, english_message),
+            sinhala_message = COALESCE($7, sinhala_message),
+            tamil_message = COALESCE($8, tamil_message)
       WHERE id = $1
       RETURNING *`,
-    [id, audience.audienceCount, audience.smsRecipientCount, audience.estimatedReach]
+    [
+      id,
+      audience.audienceCount,
+      audience.smsRecipientCount,
+      audience.estimatedReach,
+      expiresAt,
+      messages?.english ?? null,
+      messages?.sinhala ?? null,
+      messages?.tamil ?? null,
+    ]
   );
 
   const row = result.rows[0] as WarningRow | undefined;
 
+  if (row && messages) {
+    await pool.query(
+      `UPDATE alert_payloads
+          SET english_text = $2, sinhala_text = $3, tamil_text = $4
+        WHERE warning_id = $1`,
+      [id, messages.english, messages.sinhala, messages.tamil]
+    );
+  }
+
   return row ? hydrate(row) : null;
+}
+
+/**
+ * Buys a warning more time. Counting from whichever is later - the current
+ * expiry or now - so extending a warning that already lapsed revives it instead
+ * of pushing a timestamp into the past.
+ */
+export async function extendExpiry(
+  id: string,
+  officerId: string,
+  extendByHours: number
+): Promise<DisasterWarning | null> {
+  const result = await pool.query(
+    `UPDATE disaster_warnings
+        SET expires_at = GREATEST(COALESCE(expires_at, NOW()), NOW())
+                         + ($2 * INTERVAL '1 hour'),
+            status = CASE WHEN status = 'EXPIRED' THEN 'ACTIVE' ELSE status END,
+            updated_at = NOW()
+      WHERE id = $1 AND officer_id = $3 AND status IN ('ACTIVE', 'EXPIRED')
+      RETURNING *`,
+    [id, extendByHours, officerId]
+  );
+
+  const row = result.rows[0] as WarningRow | undefined;
+
+  return row ? toWarning(row) : null;
 }
 
 export async function changeStatus(
@@ -468,13 +546,17 @@ export interface AudienceRow extends AlertRecipient {
 /**
  * "First check who is going to have the alerts" - resolve real accounts rather
  * than inventing delivery numbers.
+ *
+ * District is matched case- and whitespace-insensitively: registration stores
+ * whatever the citizen typed ("gampaha", "Gampaha "), and a strict equality
+ * test silently drops those accounts from the audience.
  */
 export async function findAlertAudience(district: string): Promise<AudienceRow[]> {
   const result = await pool.query(
     `SELECT id, phone_number, device_token, latitude, longitude
        FROM users
       WHERE status = 'ACTIVE'
-        AND district = $1
+        AND LOWER(TRIM(district)) = LOWER(TRIM($1))
         AND role = ANY($2)
         AND (device_token IS NOT NULL OR phone_number IS NOT NULL)
       ORDER BY created_at`,
@@ -510,24 +592,41 @@ export interface CoverageRow {
 }
 
 /**
- * Coverage telemetry: how many alerted accounts sit in each district.
+ * Coverage telemetry: how many alerted accounts sit in each district. Accounts
+ * spell their district however they like, so `gampaha` and `Gampaha` are one
+ * place here - the same normalisation the audience lookup applies.
+ * Only returns the 24 official Sri Lankan districts.
  */
 export async function countAudienceByDistrict(): Promise<CoverageRow[]> {
   const result = await pool.query(
-    `SELECT district, COUNT(*)::int AS count
+    `SELECT INITCAP(LOWER(TRIM(district))) AS district, COUNT(*)::int AS count
        FROM users
       WHERE status = 'ACTIVE'
         AND role = ANY($1)
         AND (device_token IS NOT NULL OR phone_number IS NOT NULL)
-      GROUP BY district
+      GROUP BY INITCAP(LOWER(TRIM(district)))
       ORDER BY count DESC`,
     [ALERT_AUDIENCE_ROLES]
   );
 
-  return (result.rows as Row[]).map((row) => ({
+  const allDistricts = (result.rows as Row[]).map((row) => ({
     district: (row.district as string | null) ?? null,
     count: Number(row.count),
   }));
+
+  // Filter to only include the 24 official Sri Lankan districts
+  // (excluding the 25th district which may be administrative)
+  const officialDistricts = [
+    "Ampara", "Anuradhapura", "Badulla", "Batticaloa", "Colombo", "Galle",
+    "Gampaha", "Hambantota", "Jaffna", "Kalutara", "Kandy", "Kegalle",
+    "Kilinochchi", "Kurunegala", "Mannar", "Matale", "Matara", "Monaragala",
+    "Mullaitivu", "Nuwara Eliya", "Polonnaruwa", "Puttalam", "Ratnapura", "Trincomalee",
+    "Vavuniya"
+  ];
+
+  return allDistricts.filter(row =>
+    row.district && officialDistricts.includes(row.district)
+  );
 }
 
 /**
