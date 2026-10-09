@@ -30,7 +30,7 @@ export default function ReportCenter({ onIssueWarning }: ReportCenterProps) {
   };
 
   return (
-    <div className="rc">
+    <div className="rc dq-console">
       {view === "list" && (
         <ReportQueueView
           key={listKey}

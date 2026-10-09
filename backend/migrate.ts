@@ -40,7 +40,7 @@ async function migrate() {
       "amasha-hazard_report_uc02.sql",
       "warning_expiry.sql",
       "warning_audit_delete_action.sql",
-      "broadcast_status_skipped.sql"
+      "broadcast_status_skipped.sql",
       "kaveesha-rescue_dispatch.sql",
       "kaveesha-district_incident_acceptance.sql"
     ];

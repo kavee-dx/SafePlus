@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 
-import { Colors } from "../constants/theme";
+import { Console, ConsoleTokens } from "../styles/dushani-consoleTheme";
 
-const Hairline = "#EAECF0";
-const Divider = "#F2F4F7";
-const ShadowCard =
-  "0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06)";
-const ShadowOverlay =
-  "0 24px 48px -12px rgba(16, 24, 40, 0.26), 0 8px 20px -8px rgba(16, 24, 40, 0.16)";
-const FocusRing = "0 0 0 3px rgba(217, 45, 32, 0.16)";
-const Mono =
-  "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
+const Hairline = Console.line;
+const Divider = Console.lineSoft;
+const Card = Console.surface;
+const Ink = Console.ink;
+const InkDim = Console.inkDim;
+const White = "#FFFFFF";
+const Line = Console.line;
+const RedTint = Console.redTint;
+const RedText = Console.redInk;
+const ShadowCard = ConsoleTokens.ShadowCard;
+const ShadowOverlay = "0 24px 60px -20px rgba(2, 8, 20, 0.9)";
+const FocusRing = ConsoleTokens.FocusRing;
+const Mono = ConsoleTokens.Mono;
 
 interface PinChallengeModalProps {
   title: string;
@@ -178,7 +182,7 @@ const PIN_MODAL_STYLES = `
 
   .pin-modal {
     width: min(440px, 100%);
-    background: ${Colors.white};
+    background: ${Card};
     border: 1px solid ${Hairline};
     border-radius: 18px;
     padding: 24px;
@@ -186,7 +190,7 @@ const PIN_MODAL_STYLES = `
     flex-direction: column;
     gap: 16px;
     box-shadow: ${ShadowOverlay};
-    color: ${Colors.text};
+    color: ${Ink};
     font-variant-numeric: tabular-nums;
     animation: pin-modal-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
@@ -214,8 +218,8 @@ const PIN_MODAL_STYLES = `
     width: 34px;
     height: 34px;
     border-radius: 10px;
-    background: ${Colors.redLight};
-    color: ${Colors.redDark};
+    background: ${RedTint};
+    color: ${RedText};
     border: 1px solid #FDA29B;
     display: flex;
     align-items: center;
@@ -229,7 +233,7 @@ const PIN_MODAL_STYLES = `
     font-weight: 800;
     letter-spacing: -0.01em;
     line-height: 1.35;
-    color: ${Colors.text};
+    color: ${Ink};
   }
 
   .pin-modal-lead {
@@ -237,7 +241,7 @@ const PIN_MODAL_STYLES = `
     font-size: 13px;
     font-weight: 500;
     line-height: 1.55;
-    color: ${Colors.muted};
+    color: ${InkDim};
   }
 
   .pin-modal-box {
@@ -250,7 +254,7 @@ const PIN_MODAL_STYLES = `
   .pin-modal-digit {
     width: 54px;
     height: 46px;
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Line};
     border-radius: 10px;
     text-align: center;
     font-family: ${Mono};
@@ -258,22 +262,22 @@ const PIN_MODAL_STYLES = `
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
-    color: ${Colors.text};
-    background: ${Colors.white};
-    caret-color: ${Colors.red};
+    color: ${Ink};
+    background: ${Card};
+    caret-color: ${Console.red};
     box-shadow: ${ShadowCard};
     transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
   }
 
   .pin-modal-digit:not(:disabled):hover {
-    border-color: ${Colors.navy};
+    border-color: ${Console.blueSoft};
   }
 
   .pin-modal-digit:focus-visible {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     box-shadow: ${FocusRing};
-    background: ${Colors.white};
+    background: ${Card};
   }
 
   .pin-modal-digit:disabled {
@@ -291,7 +295,7 @@ const PIN_MODAL_STYLES = `
     font-size: 12px;
     font-weight: 700;
     line-height: 1.45;
-    color: ${Colors.redDark};
+    color: ${RedText};
     text-align: center;
   }
 
@@ -311,12 +315,12 @@ const PIN_MODAL_STYLES = `
     height: 38px;
     padding: 0 16px;
     border-radius: 10px;
-    border: 1px solid ${Colors.border};
-    background: ${Colors.white};
+    border: 1px solid ${Line};
+    background: ${Card};
     font-family: inherit;
     font-size: 13px;
     font-weight: 700;
-    color: ${Colors.text};
+    color: ${Ink};
     cursor: pointer;
     white-space: nowrap;
     box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
@@ -325,8 +329,8 @@ const PIN_MODAL_STYLES = `
   }
 
   .pin-modal-button:hover:not(:disabled) {
-    border-color: ${Colors.navy};
-    color: ${Colors.navy};
+    border-color: ${Console.blueSoft};
+    color: ${Console.blueInk};
     box-shadow: ${ShadowCard};
   }
 
@@ -336,21 +340,21 @@ const PIN_MODAL_STYLES = `
 
   .pin-modal-button:focus-visible {
     outline: none;
-    border-color: ${Colors.red};
+    border-color: ${Console.red};
     box-shadow: ${FocusRing};
   }
 
   .pin-modal-button-confirm {
-    border-color: ${Colors.red};
-    background: ${Colors.red};
-    color: ${Colors.white};
+    border-color: ${Console.red};
+    background: ${Console.red};
+    color: ${White};
     box-shadow: 0 1px 3px rgba(217, 45, 32, 0.32);
   }
 
   .pin-modal-button-confirm:hover:not(:disabled) {
-    background: ${Colors.redDark};
-    border-color: ${Colors.redDark};
-    color: ${Colors.white};
+    background: ${RedText};
+    border-color: ${RedText};
+    color: ${White};
     box-shadow: 0 4px 12px -4px rgba(180, 35, 24, 0.5);
   }
 
