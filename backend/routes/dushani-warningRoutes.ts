@@ -5,6 +5,8 @@ import {
   coverage,
   createDraft,
   deleteDraft,
+  deleteWarning,
+  extendExpiry,
   getOfficerWarnings,
   getWarning,
   previewAudience,
@@ -43,8 +45,14 @@ router.put("/:warningId/draft", updateDraft);
 // DELETE /api/warnings/:warningId/draft
 router.delete("/:warningId/draft", deleteDraft);
 
+// DELETE /api/warnings/:warningId - delete an issued warning
+router.delete("/:warningId", deleteWarning);
+
 // POST /api/warnings/:warningId/stand-down - close an active warning
 router.post("/:warningId/stand-down", standDown);
+
+// POST /api/warnings/:warningId/extend-expiry - keep a warning active longer
+router.post("/:warningId/extend-expiry", extendExpiry);
 
 // GET /api/warnings/:warningId - delivery telemetry
 router.get("/:warningId", getWarning);

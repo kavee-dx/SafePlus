@@ -26,6 +26,39 @@ const STATUS_COPY: Record<ReportStatus, { label: string; tone: "active" | "pendi
 const humanize = (value: string) =>
   value.toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 
+/** One fact per row: tiny label on the left, value free to wrap on the right. */
+function DetailRow({
+  label,
+  value,
+  identifier,
+  divider = true,
+}: {
+  label: string;
+  value: string;
+  identifier?: boolean;
+  divider?: boolean;
+}) {
+  return (
+    <View
+      className={`py-2.5 ${divider ? "border-b border-safeplus-hairline" : ""}`}
+    >
+      <View className="flex-row items-start">
+        <View className="w-[96px] mr-2">
+          <Text className="text-[10px] font-extrabold uppercase tracking-[1px] text-safeplus-slate">
+            {label}
+          </Text>
+        </View>
+        <Text
+          style={identifier ? { fontFamily: "monospace" } : undefined}
+          className="flex-1 text-[13px] font-bold text-safeplus-navy"
+        >
+          {value}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 interface MyReportsScreenProps {
   token: string;
   onBack: () => void;
@@ -90,33 +123,68 @@ export default function MyReportsScreen({
           <View key={report.id} className="mb-4">
             <FormSection>
               <View className="flex-row items-start justify-between">
-                <View className="flex-1 mr-3">
-                  <Text className="text-base font-extrabold text-safeplus-navy">
-                    {humanize(report.hazardType)} · {report.locationDistrict}
-                  </Text>
-                  <Text className="mt-1 text-xs text-safeplus-slate">
-                    {new Date(report.createdAt).toLocaleString()} · {report.reportId}
-                  </Text>
-                </View>
+                <Text className="flex-1 mr-3 text-base font-extrabold text-safeplus-navy">
+                  {humanize(report.hazardType)}
+                </Text>
                 <StatusPill tone={status.tone} label={status.label} />
               </View>
 
-              <Text className="mt-3 text-sm leading-6 text-safeplus-navy">
-                {report.description}
-              </Text>
+              <View className="mt-2">
+                <DetailRow
+                  label="District"
+                  value={report.locationDistrict}
+                />
+                <DetailRow
+                  label="Reported"
+                  value={new Date(report.createdAt).toLocaleString()}
+                />
+                <DetailRow
+                  label="Reference"
+                  value={report.reportId}
+                  identifier
+                  divider={(report.warningCount ?? 0) > 0}
+                />
+                {(report.warningCount ?? 0) > 0 && (
+                  <DetailRow
+                    label="Warnings"
+                    value={`${report.warningCount} ${
+                      report.warningCount === 1 ? "warning" : "warnings"
+                    } broadcast`}
+                    divider={false}
+                  />
+                )}
+              </View>
+
+              <View className="mt-3">
+                <Text className="text-[10px] font-extrabold uppercase tracking-[1px] text-safeplus-slate">
+                  Your report
+                </Text>
+                <Text className="mt-1 text-sm leading-6 text-safeplus-navy">
+                  {report.description}
+                </Text>
+              </View>
 
               {report.verificationNotes && (
-                <Text className="mt-3 p-3 rounded-xl bg-safeplus-fieldBg text-xs leading-5 text-safeplus-slate">
-                  Officer note: {report.verificationNotes}
-                </Text>
+                <View className="mt-3 p-3 rounded-xl bg-safeplus-fieldBg border-l-2 border-l-safeplus-navy">
+                  <Text className="text-[10px] font-extrabold uppercase tracking-[1px] text-safeplus-slate">
+                    Officer note
+                  </Text>
+                  <Text className="mt-1 text-xs leading-5 text-safeplus-navy">
+                    {report.verificationNotes}
+                  </Text>
+                </View>
               )}
 
               {(report.warningCount ?? 0) > 0 && (
-                <View className="flex-row items-center mt-3">
-                  <Ionicons name="megaphone-outline" size={15} color="#D92D20" className="mr-1.5" />
-                  <Text className="text-xs font-bold text-safeplus-red">
-                    {report.warningCount} warning
-                    {report.warningCount === 1 ? "" : "s"} broadcast from this report
+                <View className="flex-row items-center mt-3 px-3 py-2.5 rounded-xl bg-safeplus-lightRed border border-safeplus-red/25">
+                  <Ionicons
+                    name="megaphone"
+                    size={15}
+                    color="#D92D20"
+                    className="mr-2"
+                  />
+                  <Text className="flex-1 text-xs font-bold text-safeplus-red">
+                    A DMC warning was raised from this report
                   </Text>
                 </View>
               )}

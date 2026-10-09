@@ -6,11 +6,13 @@ import {
   type CreateReportRequest,
   type VerifyReportRequest,
 } from "../models/hazardReport";
-import type {
-  ChannelSelection,
-  Coordinate,
-  CreateDraftRequest,
-  BroadcastWarningRequest,
+import {
+  MAX_EXPIRY_EXTENSION_HOURS,
+  WARNING_LIFETIME_HOURS,
+  type ChannelSelection,
+  type Coordinate,
+  type CreateDraftRequest,
+  type BroadcastWarningRequest,
 } from "../models/disasterWarning";
 
 const SINHALA_RANGE = /[\u0d80-\u0dff]/;
@@ -343,17 +345,25 @@ export function validateDraft(body: unknown, isUpdate = false): CreateDraftReque
 
   const channels = flags(source, errors);
   const customBoundary = parseBoundary(source.customBoundary);
+  const expiresInHours = wholeNumber(
+    source,
+    "expiresInHours",
+    "Alert lifetime",
+    errors
+  );
+
+  if (expiresInHours === undefined && !optional) {
+    errors.expiresInHours = "Choose how long the warning stays active.";
+  } else if (
+    expiresInHours !== undefined &&
+    !(WARNING_LIFETIME_HOURS as readonly number[]).includes(expiresInHours)
+  ) {
+    errors.expiresInHours = "Choose one of the supported lifetimes.";
+  }
 
   if (Object.keys(errors).length > 0) {
     fail("Fix the highlighted fields before saving.", errors);
   }
-
-  const draftExpiresInHours = wholeNumber(
-    source,
-    "draftExpiresInHours",
-    "Draft expiry",
-    errors
-  );
 
   return {
     reportId,
@@ -366,8 +376,72 @@ export function validateDraft(body: unknown, isUpdate = false): CreateDraftReque
     channels,
     ...(safetyInstructions ? { safetyInstructions } : {}),
     ...(customBoundary.length > 0 ? { customBoundary } : {}),
-    ...(draftExpiresInHours !== undefined ? { draftExpiresInHours } : {}),
+    ...(expiresInHours !== undefined ? { expiresInHours } : {}),
   };
+}
+
+/** Body of the extend-expiry call: how many more hours the warning should hold. */
+export function validateExpiryExtension(body: unknown): { extendByHours: number; securityPin: string } {
+  const source = asObject(body);
+  const errors: Field = {};
+
+  const extendByHours = wholeNumber(source, "extendByHours", "Extension", errors);
+  const securityPin = text(source, "securityPin", "Clearance PIN", errors, {
+    min: 6,
+    max: 6,
+  });
+
+  if (extendByHours === undefined) {
+    fail("Fix the highlighted fields before extending the warning.", {
+      extendByHours: "Say how many more hours the warning should stay active.",
+    });
+  }
+
+  if (extendByHours < 1) {
+    fail("Fix the highlighted fields before extending the warning.", {
+      extendByHours: "An extension must be at least one hour.",
+    });
+  }
+
+  if (extendByHours > MAX_EXPIRY_EXTENSION_HOURS) {
+    fail("Fix the highlighted fields before extending the warning.", {
+      extendByHours: `An extension is at most ${MAX_EXPIRY_EXTENSION_HOURS} hours.`,
+    });
+  }
+
+  if (securityPin && !PIN_PATTERN.test(securityPin)) {
+    errors.securityPin = "Clearance PIN must be exactly 6 digits.";
+  }
+
+  if (Object.keys(errors).length > 0) {
+    fail("Authorization could not be completed.", errors);
+  }
+
+  return { extendByHours, securityPin };
+}
+
+/**
+ * Standing a warning down pulls a live alert off every handset in the area, so
+ * it clears the same PIN as the broadcast that put it there.
+ */
+export function validateStandDown(body: unknown): { securityPin: string } {
+  const source = asObject(body);
+  const errors: Field = {};
+
+  const securityPin = text(source, "securityPin", "Clearance PIN", errors, {
+    min: 6,
+    max: 6,
+  });
+
+  if (securityPin && !PIN_PATTERN.test(securityPin)) {
+    errors.securityPin = "Clearance PIN must be exactly 6 digits.";
+  }
+
+  if (Object.keys(errors).length > 0) {
+    fail("Authorization could not be completed.", errors);
+  }
+
+  return { securityPin };
 }
 
 export function validateBroadcast(body: unknown): BroadcastWarningRequest {

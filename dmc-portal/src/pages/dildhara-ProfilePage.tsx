@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { Colors } from "../constants/theme";
+import { DATA_STYLES } from "../styles/dushani-dataStyles";
 import {
   PORTAL_ROLE_LABELS,
   PortalApiError,
@@ -44,8 +45,7 @@ const PHONE: FieldDef = { key: "phoneNumber", label: "Phone number", source: "us
 
 const PERSONAL: SectionDef = { title: "Personal details", icon: User, fields: [NAME, PHONE] };
 
-// Which fields each role sees. `editable` fields can be changed here; the rest
-// were verified by the Super Admin and stay locked.
+// Editable fields can be changed here; the rest were verified by the Super Admin and stay locked.
 const ROLE_SECTIONS: Record<string, SectionDef[]> = {
   DMC_OFFICER: [
     PERSONAL,
@@ -112,6 +112,10 @@ const initials = (name: string): string =>
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+
+// Identifiers and phone numbers read as fixed-width codes; everything else stays proportional.
+const isMono = (key: string): boolean =>
+  key === "officerId" || key === "registrationNumber" || key === "phoneNumber";
 
 interface ProfilePageProps {
   token: string;
@@ -232,66 +236,54 @@ export default function ProfilePage({
 
   const roleLabel = PORTAL_ROLE_LABELS[account.role] ?? account.role;
   const name = String(profile.user.fullName ?? account.fullName);
+  const statusText = asText(profile.user.status).replace(/_/g, " ");
   const active = profile.user.status === "ACTIVE";
+  const statusClass = active ? "sp-pill sp-pill-green" : "sp-pill sp-pill-red";
 
-  const renderField = (field: FieldDef) => {
+  const renderRow = (field: FieldDef) => (
+    <li className="sp-row" key={field.key}>
+      <span className="sp-label">
+        {field.label}
+        {editing && <Lock className="pp-lock" size={11} />}
+      </span>
+      <span className={isMono(field.key) ? "sp-value sp-mono" : "sp-value"}>
+        {asText(read(profile, field)) || "—"}
+      </span>
+    </li>
+  );
+
+  const renderInput = (field: FieldDef) => {
     const error = fieldErrors[field.key];
-
-    if (editing && field.editable) {
-      const id = `pp-${field.key}`;
-      return (
-        <div className="pp-field" key={field.key}>
-          <label htmlFor={id}>{field.label}</label>
-          {field.multiline ? (
-            <textarea
-              id={id}
-              className={error ? "invalid" : ""}
-              value={draft[field.key] ?? ""}
-              onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
-            />
-          ) : (
-            <input
-              id={id}
-              className={error ? "invalid" : ""}
-              type="text"
-              inputMode={field.numeric ? "numeric" : undefined}
-              value={draft[field.key] ?? ""}
-              onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
-            />
-          )}
-          {error && (
-            <span className="pp-error">
-              <AlertCircle size={12} />
-              {error}
-            </span>
-          )}
-        </div>
-      );
-    }
-
+    const id = `pp-${field.key}`;
     return (
       <div className="pp-field" key={field.key}>
-        <span className="pp-label">
-          {field.label}
-          {editing && <Lock size={11} />}
-        </span>
-        <div className="pp-value">{asText(read(profile, field)) || "—"}</div>
+        <label htmlFor={id}>{field.label}</label>
+        {field.multiline ? (
+          <textarea
+            id={id}
+            className={error ? "invalid" : ""}
+            value={draft[field.key] ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
+          />
+        ) : (
+          <input
+            id={id}
+            className={error ? "invalid" : ""}
+            type="text"
+            inputMode={field.numeric ? "numeric" : undefined}
+            value={draft[field.key] ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
+          />
+        )}
+        {error && (
+          <span className="pp-error">
+            <AlertCircle size={12} />
+            {error}
+          </span>
+        )}
       </div>
     );
   };
-
-  const accountRows: [string, string][] = [
-    ["Email", asText(profile.user.email)],
-    ["Username", asText(profile.user.username)],
-    ["Role", roleLabel],
-    ["Account status", asText(profile.user.status).replace(/_/g, " ")],
-    [
-      "Can sign in to",
-      account.interfaces
-        .map((i) => (i === "DMC_PORTAL" ? "SafePlus DMC portal" : "SafePlus mobile app"))
-        .join(", "),
-    ],
-  ];
 
   return (
     <div className="pp-page">
@@ -299,10 +291,10 @@ export default function ProfilePage({
         <div className="pp-avatar-lg">{initials(name)}</div>
         <div className="pp-header-text">
           <h1>{name}</h1>
-          <span>{roleLabel}</span>
-          <em className={active ? "pp-pill ok" : "pp-pill"}>
-            {active ? "Active" : asText(profile.user.status).replace(/_/g, " ")}
-          </em>
+          <div className="sp-badges">
+            <span className="sp-pill sp-pill-blue">{roleLabel}</span>
+            <span className={statusClass}>{active ? "Active" : statusText}</span>
+          </div>
         </div>
 
         {!editing ? (
@@ -342,32 +334,65 @@ export default function ProfilePage({
           <ShieldCheck size={16} />
           Account
         </h3>
-        <div className="pp-grid">
-          {accountRows.map(([label, value]) => (
-            <div className="pp-field" key={label}>
-              <span className="pp-label">{label}</span>
-              <div className="pp-value">{value || "—"}</div>
-            </div>
-          ))}
-        </div>
+        <ul className="sp-list">
+          <li className="sp-row">
+            <span className="sp-label">Email</span>
+            <span className="sp-value">{asText(profile.user.email) || "—"}</span>
+          </li>
+          <li className="sp-row">
+            <span className="sp-label">Username</span>
+            <span className="sp-value sp-mono">{asText(profile.user.username) || "—"}</span>
+          </li>
+          <li className="sp-row">
+            <span className="sp-label">Role</span>
+            <span className="sp-pill sp-pill-blue">{roleLabel}</span>
+          </li>
+          <li className="sp-row">
+            <span className="sp-label">Account status</span>
+            <span className={statusClass}>{active ? "Active" : statusText}</span>
+          </li>
+          <li className="sp-row">
+            <span className="sp-label">Can sign in to</span>
+            {account.interfaces.length > 0 ? (
+              <ul className="sp-bullets">
+                {account.interfaces.map((i) => (
+                  <li key={i}>{i === "DMC_PORTAL" ? "SafePlus DMC portal" : "SafePlus mobile app"}</li>
+                ))}
+              </ul>
+            ) : (
+              <span className="sp-value">—</span>
+            )}
+          </li>
+        </ul>
       </section>
 
-      {sections.map((section) => (
-        <section className="pp-card" key={section.title}>
-          <h3>
-            <section.icon size={16} />
-            {section.title}
-          </h3>
-          <div className="pp-grid">{section.fields.map(renderField)}</div>
-        </section>
-      ))}
+      {sections.map((section) => {
+        const rows = section.fields.filter((f) => !(editing && f.editable)).map(renderRow);
+        const inputs = editing
+          ? section.fields.filter((f) => f.editable).map(renderInput)
+          : [];
+        return (
+          <section className="pp-card" key={section.title}>
+            <h3>
+              <section.icon size={16} />
+              {section.title}
+            </h3>
+            <div className="sp-stack">
+              {rows.length > 0 && <ul className="sp-list">{rows}</ul>}
+              {inputs.length > 0 && <div className="pp-grid">{inputs}</div>}
+            </div>
+          </section>
+        );
+      })}
 
-      <p className="pp-footnote">
+      <div className="sp-block">
         Fields marked with a lock were verified when your account was approved.
         Contact the system administrator if one of them needs to change.
-      </p>
+      </div>
 
+      <style>{DATA_STYLES}</style>
       <style>{`
+        .pp-page { text-align: left; }
         .pp-loading { padding: 40px; text-align: center; color: ${Colors.muted}; font-size: 14px; }
         .pp-header {
           display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -379,14 +404,9 @@ export default function ProfilePage({
           background: ${Colors.red}; color: #fff; font-size: 24px; font-weight: 800;
           display: flex; align-items: center; justify-content: center;
         }
-        .pp-header-text { flex: 1; min-width: 180px; display: flex; flex-direction: column; align-items: flex-start; }
+        .pp-header-text { flex: 1; min-width: 180px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
         .pp-header-text h1 { margin: 0; font-size: 22px; color: ${Colors.text}; letter-spacing: -0.02em; }
-        .pp-header-text span { margin-top: 3px; font-size: 13px; color: ${Colors.muted}; }
-        .pp-pill {
-          margin-top: 8px; padding: 3px 10px; border-radius: 999px; font-style: normal;
-          font-size: 11px; font-weight: 800; background: ${Colors.redLight}; color: ${Colors.redDark};
-        }
-        .pp-pill.ok { background: #ecfdf3; color: #067647; }
+        .pp-lock { display: inline-block; vertical-align: -1px; margin-left: 4px; color: ${Colors.muted}; }
         .pp-btn-row { display: flex; gap: 8px; }
         .pp-btn {
           display: inline-flex; align-items: center; gap: 7px; height: 42px; padding: 0 16px;
@@ -413,12 +433,11 @@ export default function ProfilePage({
         .pp-card h3 svg { color: ${Colors.red}; }
         .pp-grid { display: grid; gap: 16px 22px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .pp-field { display: flex; flex-direction: column; min-width: 0; }
-        .pp-field label, .pp-label {
+        .pp-field label {
           display: flex; align-items: center; gap: 5px; margin-bottom: 6px;
           font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
           text-transform: uppercase; color: ${Colors.muted};
         }
-        .pp-value { font-size: 14px; color: ${Colors.text}; word-break: break-word; }
         .pp-field input, .pp-field textarea {
           width: 100%; padding: 11px 13px; border-radius: 10px; font-size: 14px;
           border: 1px solid ${Colors.border}; color: ${Colors.text}; background: ${Colors.white};
@@ -433,7 +452,6 @@ export default function ProfilePage({
           display: flex; align-items: center; gap: 5px; margin-top: 6px;
           font-size: 11px; color: ${Colors.redDark};
         }
-        .pp-footnote { font-size: 11px; color: ${Colors.muted}; line-height: 1.6; }
         @media (max-width: 700px) { .pp-grid { grid-template-columns: 1fr; } }
       `}</style>
     </div>

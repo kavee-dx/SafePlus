@@ -6,6 +6,10 @@ export interface AlertSmsMessage {
   areaLabel: string;
   instruction: string;
   body: string;
+  /** Kept apart so the handset can label each language instead of one run-on text. */
+  englishMessage: string;
+  sinhalaMessage: string;
+  tamilMessage: string;
   deliveredAt: Date;
   readAt?: Date;
   /** Copied from the warning so a stood-down alert stops looking live. */
