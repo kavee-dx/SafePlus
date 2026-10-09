@@ -463,7 +463,7 @@ if (resourcePage === "myRequests") {
           {section.fields.filter(visibleField).map(renderField)}
         </Section>
       ))}
-      {canRequestResources ? (
+      {/* {canRequestResources ? (
   <Section title="Resource Requests">
     <Text className="mb-3 text-sm leading-5 text-safeplus-muted">
       Request resources that you need
@@ -492,7 +492,7 @@ if (resourcePage === "myRequests") {
       </Text>
     </Pressable>
   </Section>
-) : null}
+) : null} */}
       {/* {canProvideResources ? ( */}
       {/* {canProvideResources ? (
   <Section title="Relief Resources">

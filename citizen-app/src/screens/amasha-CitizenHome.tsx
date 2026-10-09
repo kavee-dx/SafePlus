@@ -17,6 +17,7 @@ export default function CitizenHome({
   onOpenMyReports,
   onOpenAlerts,
   onFindReliefCenters,
+  onAction,
   unreadCount = 0,
 }: HomeProps) {
   return (
@@ -57,14 +58,9 @@ export default function CitizenHome({
             <Ionicons name="location" size={26} color="#FFFFFF" />
           </View>
           <View className="flex-1">
-            <View className="flex-row items-center">
-              <Text className="text-lg font-extrabold text-white">
-                Find nearby relief centres
-              </Text>
-              {/* <View className="px-2 py-0.5 ml-2 rounded-full bg-white/25">
-                <Text className="text-[10px] font-extrabold text-white uppercase">Soon</Text>
-              </View> */}
-            </View>
+            <Text className="text-lg font-extrabold text-white">
+              Find nearby relief centres
+            </Text>
             <Text className="mt-0.5 text-xs text-white/90">
               Locate the closest safe shelter.
             </Text>
@@ -89,6 +85,22 @@ export default function CitizenHome({
             label="My reports"
             hint="Track and update"
             onPress={onOpenMyReports}
+          />
+        ) : null}
+        {onAction ? (
+          <QuickAction
+            icon="add-circle-outline"
+            label="Request resource"
+            hint="Ask for emergency supplies"
+            onPress={() => onAction("request-resource")}
+          />
+        ) : null}
+        {onAction ? (
+          <QuickAction
+            icon="cube-outline"
+            label="My requests"
+            hint="Track your requests"
+            onPress={() => onAction("my-requests")}
           />
         ) : null}
         <QuickAction
