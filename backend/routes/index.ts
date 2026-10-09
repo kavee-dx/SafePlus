@@ -14,6 +14,7 @@ import alertTargetRoutes from "./dushani-alertTargetRoutes";
 import alertInboxRoutes from "./dushani-alertInboxRoutes";
 import rescueOrganizationRoutes from "./kaveesha-rescueOrgRoutes";
 import rescueTeamRoutes from "./kaveesha-rescueTeamRoutes";
+import rescueDispatchRoutes from "./kaveesha-dispatchRoutes";
 
 const router = Router();
 
@@ -37,5 +38,6 @@ router.use("/alert-target", alertTargetRoutes);
 router.use("/alert-inbox", alertInboxRoutes);
 router.use("/rescue-organization", rescueOrganizationRoutes);
 router.use("/rescue-teams", rescueTeamRoutes);
+router.use("/rescue-dispatch", rescueDispatchRoutes);
 
 export default router;
