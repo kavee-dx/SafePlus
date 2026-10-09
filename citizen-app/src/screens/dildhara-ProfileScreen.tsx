@@ -494,6 +494,7 @@ if (resourcePage === "myRequests") {
   </Section>
 ) : null}
       {canProvideResources ? (
+      {/* {canProvideResources ? (
   <Section title="Relief Resources">
     <Text className="mb-3 text-sm leading-5 text-safeplus-muted">
       Provide resources that you are willing to make
@@ -518,7 +519,7 @@ if (resourcePage === "myRequests") {
       </Text>
     </Pressable>
   </Section>
-) : null}
+) : null} */}
 
       {editing ? (
         <Text className="mb-4 text-xs leading-5 text-safeplus-muted">

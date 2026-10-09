@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ClipboardList,
   CircleDot,
+  Clock,
   Loader2,
   Map as MapIcon,
   Megaphone,
@@ -28,9 +29,14 @@ import type {
   DistrictBoundary,
 } from "../types/warning";
 import {
+  EXPIRY_EXTENSION_HOURS,
+  WARNING_LIFETIME_HOURS,
+} from "../types/warning";
+import {
   AlertApiError,
   broadcastWarning,
   createDraft,
+  extendWarningExpiry,
   fetchDistricts,
   fetchDistrictRings,
   fetchVerifiedReports,
@@ -38,8 +44,19 @@ import {
   standDownWarning,
   synthesizeMessages,
   updateDraft,
+  pinProblem,
 } from "../services/dushani-alertApi";
 import TargetMap from "./dushani-TargetMap";
+import PinChallengeModal from "./dushani-PinChallengeModal";
+import {
+  DATA_STYLES,
+  channelLabel,
+  deliveryLabel,
+  isDeliveryError,
+  severityPill,
+  skippedCopy,
+  statusPill,
+} from "../styles/dushani-dataStyles";
 
 interface WarningWizardProps {
   initialReportId?: string;
@@ -66,6 +83,8 @@ const HAZARD_TYPES = [
 
 const SEVERITY_OPTIONS: SeverityLevel[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
+const DEFAULT_LIFETIME_HOURS = 24;
+
 const STEPS = ["Report", "Target area", "Message", "Authorize", "Delivery"];
 
 function preferredDistrict(items: DistrictBoundary[]): string {
@@ -75,6 +94,11 @@ function preferredDistrict(items: DistrictBoundary[]): string {
 }
 
 const AUDIENCE_DEBOUNCE_MS = 450;
+
+// Mirrors backend/validators/dushani-alertValidators.ts so an officer sees the
+// reason before the request is refused with a 400.
+const SINHALA_SCRIPT = /[\u0d80-\u0dff]/;
+const TAMIL_SCRIPT = /[\u0b80-\u0bff]/;
 
 export default function WarningWizard({
   initialReportId,
@@ -110,6 +134,7 @@ export default function WarningWizard({
     sms: true,
     siren: false,
   });
+  const [expiresInHours, setExpiresInHours] = useState(DEFAULT_LIFETIME_HOURS);
   const [generating, setGenerating] = useState(false);
 
   // Step 4/5 — authorization and telemetry.
@@ -119,6 +144,12 @@ export default function WarningWizard({
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcast, setBroadcast] = useState<DisasterWarning | null>(null);
   const [standDownBusy, setStandDownBusy] = useState(false);
+  const [extendHours, setExtendHours] = useState(EXPIRY_EXTENSION_HOURS[1]);
+  const [extendBusy, setExtendBusy] = useState(false);
+  const [liveAction, setLiveAction] = useState<"none" | "extend" | "stand-down">(
+    "none"
+  );
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -142,6 +173,13 @@ export default function WarningWizard({
         );
 
         if (!wanted) {
+          return;
+        }
+
+        if ((wanted.warningCount ?? 0) > 0) {
+          setError(
+            `${wanted.reportId} already carries a warning. One report raises one warning - reopen it from Alert history.`
+          );
           return;
         }
 
@@ -252,7 +290,8 @@ export default function WarningWizard({
 
   const payload = useMemo(
     () => ({
-      reportId,
+      // The API resolves reports by their human readable RPT-... id.
+      reportId: selectedReport?.reportId ?? reportId,
       hazardType,
       severityLevel,
       targetDistrict,
@@ -264,21 +303,78 @@ export default function WarningWizard({
       sinhalaMessage,
       tamilMessage,
       channels,
+      expiresInHours,
     }),
     [
       channels,
       englishMessage,
+      expiresInHours,
       hazardType,
       mode,
       polygon,
       reportId,
       safetyInstructions,
+      selectedReport,
       severityLevel,
       sinhalaMessage,
       targetDistrict,
       tamilMessage,
     ]
   );
+
+  const draftIssues = useMemo(() => {
+    const issues: Record<string, string> = {};
+    const english = englishMessage.trim();
+    const sinhala = sinhalaMessage.trim();
+    const tamil = tamilMessage.trim();
+    const safety = safetyInstructions.trim();
+
+    if (!selectedReport) {
+      issues.reportId = "Pick the verified report in step 1.";
+    } else if ((selectedReport.warningCount ?? 0) > 0) {
+      issues.reportId =
+        "This report already carries a warning. One report raises one warning only.";
+    }
+
+    if (!targetDistrict) {
+      issues.targetDistrict = "Pick the district to alert.";
+    }
+
+    if (english.length < 20) {
+      issues.englishMessage = "English message needs at least 20 characters.";
+    }
+
+    if (sinhala.length < 15) {
+      issues.sinhalaMessage = "Sinhala message needs at least 15 characters.";
+    } else if (!SINHALA_SCRIPT.test(sinhala)) {
+      issues.sinhalaMessage = "Write the Sinhala message in Sinhala script.";
+    }
+
+    if (tamil.length < 15) {
+      issues.tamilMessage = "Tamil message needs at least 15 characters.";
+    } else if (!TAMIL_SCRIPT.test(tamil)) {
+      issues.tamilMessage = "Write the Tamil message in Tamil script.";
+    }
+
+    if (safety && safety.length < 10) {
+      issues.safetyInstructions =
+        "Either leave this empty or write at least 10 characters.";
+    }
+
+    if (!channels.push && !channels.sms && !channels.siren) {
+      issues.channels = "Choose at least one channel to reach people.";
+    }
+
+    return issues;
+  }, [
+    channels,
+    englishMessage,
+    safetyInstructions,
+    selectedReport,
+    sinhalaMessage,
+    tamilMessage,
+    targetDistrict,
+  ]);
 
   const canContinue = () => {
     if (step === 1) return Boolean(selectedReport);
@@ -292,12 +388,7 @@ export default function WarningWizard({
     }
 
     if (step === 3) {
-      return (
-        englishMessage.trim().length >= 20 &&
-        sinhalaMessage.trim().length >= 15 &&
-        tamilMessage.trim().length >= 15 &&
-        (channels.push || channels.sms || channels.siren)
-      );
+      return Object.keys(draftIssues).length === 0;
     }
 
     return true;
@@ -332,7 +423,7 @@ export default function WarningWizard({
 
     try {
       const saved = warning
-        ? await updateDraft(warning.id, payload)
+        ? await updateDraft(warning.warningId, payload)
         : await createDraft(payload);
 
       setWarning(saved);
@@ -368,7 +459,7 @@ export default function WarningWizard({
     setFieldErrors({});
 
     try {
-      const result = await broadcastWarning(draft.id, pin.join(""));
+      const result = await broadcastWarning(draft.warningId, pin.join(""));
 
       setBroadcast(result);
       setWarning(result);
@@ -411,7 +502,8 @@ export default function WarningWizard({
     setError(failure.message);
   };
 
-  const handleStandDown = async () => {
+  /** A live-warning action needs the clearance PIN, so it runs from the dialog. */
+  const handleStandDown = async (securityPin: string) => {
     if (!broadcast) {
       return;
     }
@@ -420,11 +512,37 @@ export default function WarningWizard({
     setError(null);
 
     try {
-      setBroadcast(await standDownWarning(broadcast.id));
+      setBroadcast(await standDownWarning(broadcast.warningId, securityPin));
+      setLiveAction("none");
     } catch (standDownError) {
-      setError(messageOf(standDownError));
+      setLiveError(pinProblem(standDownError));
     } finally {
       setStandDownBusy(false);
+    }
+  };
+
+  const handleExtendExpiry = async (securityPin: string) => {
+    if (!broadcast) {
+      return;
+    }
+
+    setExtendBusy(true);
+    setError(null);
+
+    try {
+      const extended = await extendWarningExpiry(
+        broadcast.warningId,
+        extendHours,
+        securityPin
+      );
+
+      setBroadcast(extended);
+      setWarning(extended);
+      setLiveAction("none");
+    } catch (extendError) {
+      setLiveError(pinProblem(extendError));
+    } finally {
+      setExtendBusy(false);
     }
   };
 
@@ -494,10 +612,12 @@ export default function WarningWizard({
             sinhalaMessage={sinhalaMessage}
             tamilMessage={tamilMessage}
             channels={channels}
+            expiresInHours={expiresInHours}
             generating={generating}
             saving={saving}
             hasDraft={Boolean(warning)}
-            fieldErrors={fieldErrors}
+            draftReady={canContinue()}
+            fieldErrors={{ ...draftIssues, ...fieldErrors }}
             onHazardTypeChange={setHazardType}
             onSeverityChange={(value) => {
               setSeverityLevel(value);
@@ -512,6 +632,7 @@ export default function WarningWizard({
             onSinhalaChange={setSinhalaMessage}
             onTamilChange={setTamilMessage}
             onChannelsChange={setChannels}
+            onExpiryChange={setExpiresInHours}
             onGenerate={() => void handleGenerate()}
             onSaveDraft={() => void persistDraft()}
           />
@@ -582,7 +703,15 @@ export default function WarningWizard({
           onSetupPin={onSetupPin}
         />
       ) : step === 5 && broadcast ? (
-        <StepDelivery warning={broadcast} />
+        <StepDelivery
+          warning={broadcast}
+          extendHours={extendHours}
+          onExtendHoursChange={setExtendHours}
+          onRequestExtend={() => {
+            setLiveError(null);
+            setLiveAction("extend");
+          }}
+        />
       ) : (
         renderStepContent()
       )}
@@ -600,7 +729,7 @@ export default function WarningWizard({
 
           <button
             type="button"
-            className="wz-button wz-button-danger"
+            className="wz-button wz-button-primary"
             onClick={() => void handleBroadcast()}
             disabled={broadcasting || pin.join("").length !== 6}
           >
@@ -624,11 +753,14 @@ export default function WarningWizard({
             <ClipboardList size={16} /> Alert history
           </button>
 
-          {broadcast.status === "ACTIVE" && (
+          {(broadcast.status === "ACTIVE" || broadcast.status === "EXPIRED") && (
             <button
               type="button"
               className="wz-button wz-button-danger"
-              onClick={() => void handleStandDown()}
+              onClick={() => {
+                setLiveError(null);
+                setLiveAction("stand-down");
+              }}
               disabled={standDownBusy}
             >
               {standDownBusy ? (
@@ -639,6 +771,49 @@ export default function WarningWizard({
               Stand down warning
             </button>
           )}
+        </div>
+      )}
+
+      {liveAction !== "none" && (
+        <PinChallengeModal
+          title={
+            liveAction === "extend"
+              ? `Clearance for a ${extendHours} hour extension`
+              : "Clearance to stand this warning down"
+          }
+          description={
+            liveAction === "extend"
+              ? `This keeps ${broadcast?.warningId ?? "the warning"} live for ${extendHours} more hours and re-activates it if it already expired. Enter your six digit clearance PIN.`
+              : `This pulls ${broadcast?.warningId ?? "the warning"} off every handset in ${broadcast?.targetDistrict ?? "the area"} District. Enter your six digit clearance PIN.`
+          }
+          confirmLabel={liveAction === "extend" ? "Extend expiry" : "Stand down"}
+          busy={liveAction === "extend" ? extendBusy : standDownBusy}
+          error={liveError}
+          onCancel={() => {
+            setLiveAction("none");
+            setLiveError(null);
+          }}
+          onConfirm={(securityPin) => {
+            if (liveAction === "extend") {
+              void handleExtendExpiry(securityPin);
+            } else if (liveAction === "stand-down") {
+              void handleStandDown(securityPin);
+            }
+          }}
+        />
+      )}
+
+      {step === 3 && Object.keys(draftIssues).length > 0 && (
+        <div className="wz-banner wz-banner-warn">
+          <AlertTriangle size={16} />
+          <div>
+            <span>Still needed before this warning can be saved:</span>
+            <ul className="wz-requirements">
+              {Object.entries(draftIssues).map(([field, issue]) => (
+                <li key={field}>{issue}</li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
@@ -674,6 +849,7 @@ export default function WarningWizard({
       )}
 
       <style>{WIZARD_STYLES}</style>
+      <style>{DATA_STYLES}</style>
     </div>
   );
 }
@@ -715,39 +891,104 @@ function StepReport({
     );
   }
 
+  if (reports.every((report) => (report.warningCount ?? 0) > 0)) {
+    return (
+      <div className="wz-empty">
+        <Ban size={26} />
+        <h3>Every verified report is already alerted on</h3>
+        <p>
+          One report raises one warning, so there is nothing left to warn on
+          here. Verify a fresh ground report, or reopen an existing warning from
+          Alert history to extend or stand it down.
+        </p>
+        <button type="button" className="wz-button wz-button-primary" onClick={onExit}>
+          Open report queue
+        </button>
+      </div>
+    );
+  }
+
   return (
     <section className="wz-card">
       <h2 className="wz-card-title">Which report is this warning for?</h2>
       <p className="wz-card-lead">
-        Every warning is linked to one verified ground report. The link is
-        enforced by the database, not just by this screen.
+        Every warning is linked to one verified ground report, and one report
+        raises exactly one warning. A report that has already been alerted on is
+        closed here - reopen that warning from Alert history instead.
       </p>
 
       <div className="wz-report-list">
-        {reports.map((report) => (
-          <button
-            type="button"
-            key={report.id}
-            className={`wz-report ${report.id === selectedId ? "wz-report-selected" : ""}`}
-            onClick={() => onSelect(report)}
-          >
-            <span className="wz-report-radio">
-              {report.id === selectedId ? <CheckCircle size={18} /> : null}
-            </span>
-            <span className="wz-report-body">
-              <span className="wz-report-headline">
-                {humanize(report.hazardType)} · {humanize(report.severityLevel)} ·{" "}
-                {report.locationDistrict}
+        {reports.map((report) => {
+          const used = (report.warningCount ?? 0) > 0;
+
+          return (
+            <button
+              type="button"
+              key={report.id}
+              className={`wz-report ${
+                report.id === selectedId ? "wz-report-selected" : ""
+              } ${used ? "wz-report-used" : ""}`}
+              disabled={used}
+              title={
+                used
+                  ? "This report already has a warning. Reopen it from Alert history."
+                  : undefined
+              }
+              onClick={() => {
+                if (used) {
+                  return;
+                }
+
+                onSelect(report);
+              }}
+            >
+              <span className="wz-report-radio">
+                {used ? (
+                  <Ban size={18} />
+                ) : report.id === selectedId ? (
+                  <CheckCircle size={18} />
+                ) : null}
               </span>
-              <span className="wz-report-desc">{report.description}</span>
-              <span className="wz-report-meta">
-                {report.reportId} · reported by {report.reporterName ?? "a citizen"} ·{" "}
-                {relativeTime(report.createdAt)}
-                {report.warningCount ? ` · ${report.warningCount} warning(s) issued` : ""}
+              <span className="wz-report-body">
+                <span className="wz-report-headline">
+                  {humanize(report.hazardType)}
+                </span>
+                <span className="sp-badges">
+                  <span className={`sp-pill ${severityPill(report.severityLevel)}`}>
+                    {humanize(report.severityLevel)} severity
+                  </span>
+                  <span className="sp-pill sp-pill-blue">
+                    {report.locationDistrict} District
+                  </span>
+                  {used && <span className="sp-pill sp-pill-slate">Already alerted</span>}
+                </span>
+                <span className="sp-facts">
+                  <span className="sp-fact">
+                    <span className="sp-label">Reference</span>
+                    <span className="sp-value sp-mono">{report.reportId}</span>
+                  </span>
+                  <span className="sp-fact">
+                    <span className="sp-label">Reported by</span>
+                    <span className="sp-value">
+                      {report.reporterName ?? "A citizen"}
+                    </span>
+                  </span>
+                  <span className="sp-fact">
+                    <span className="sp-label">Received</span>
+                    <span className="sp-value">{relativeTime(report.createdAt)}</span>
+                  </span>
+                  {used && (
+                    <span className="sp-fact">
+                      <span className="sp-label">Warnings raised</span>
+                      <span className="sp-value">{report.warningCount ?? 0}</span>
+                    </span>
+                  )}
+                </span>
+                <span className="wz-report-desc">{report.description}</span>
               </span>
-            </span>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </section>
   );
@@ -895,9 +1136,11 @@ function StepMessage(props: {
   sinhalaMessage: string;
   tamilMessage: string;
   channels: ChannelSelection;
+  expiresInHours: number;
   generating: boolean;
   saving: boolean;
   hasDraft: boolean;
+  draftReady: boolean;
   fieldErrors: Record<string, string>;
   onHazardTypeChange: (value: string) => void;
   onSeverityChange: (value: SeverityLevel) => void;
@@ -906,6 +1149,7 @@ function StepMessage(props: {
   onSinhalaChange: (value: string) => void;
   onTamilChange: (value: string) => void;
   onChannelsChange: (value: ChannelSelection) => void;
+  onExpiryChange: (value: number) => void;
   onGenerate: () => void;
   onSaveDraft: () => void;
 }) {
@@ -967,6 +1211,9 @@ function StepMessage(props: {
           Left empty, the wording falls back to the standard advice for this
           hazard and severity.
         </span>
+        {props.fieldErrors.safetyInstructions && (
+          <p className="wz-field-error-text">{props.fieldErrors.safetyInstructions}</p>
+        )}
       </div>
 
       <button
@@ -1040,11 +1287,39 @@ function StepMessage(props: {
         )}
       </div>
 
+      <div className="wz-field">
+        <label htmlFor="wz-lifetime">Alert valid for</label>
+        <select
+          id="wz-lifetime"
+          value={props.expiresInHours}
+          onChange={(event) => props.onExpiryChange(Number(event.target.value))}
+        >
+          {WARNING_LIFETIME_HOURS.map((hours) => (
+            <option key={hours} value={hours}>
+              {hours === 1 ? "1 hour" : `${hours} hours`}
+            </option>
+          ))}
+        </select>
+        <span className="wz-help">
+          The countdown starts when the warning is broadcast, and citizens see
+          it as the expiry time on the alert. A live warning can be extended
+          later from the delivery screen.
+        </span>
+        {props.fieldErrors.expiresInHours && (
+          <p className="wz-field-error-text">{props.fieldErrors.expiresInHours}</p>
+        )}
+      </div>
+
       <button
         type="button"
         className="wz-button wz-button-ghost"
         onClick={props.onSaveDraft}
-        disabled={props.saving}
+        disabled={props.saving || !props.draftReady}
+        title={
+          props.draftReady
+            ? undefined
+            : "Fill all three message boxes first (English 20+, Sinhala 15+, Tamil 15+) and pick a channel."
+        }
       >
         {props.saving ? <Loader2 className="wz-spin" size={15} /> : <Save size={15} />}
         {props.hasDraft ? "Update draft" : "Save warning as draft"}
@@ -1141,7 +1416,7 @@ function StepAuthorize({
     channels.push ? "Push" : null,
     channels.sms ? "SMS" : null,
     channels.siren ? "Siren" : null,
-  ].filter(Boolean);
+  ].filter((channel): channel is string => channel !== null);
 
   return (
     <section className="wz-card wz-authorize">
@@ -1154,32 +1429,63 @@ function StepAuthorize({
 
       <div className="wz-summary">
         <SummaryRow label="Warning" value={warning?.warningId ?? "Not saved yet"} />
+        <SummaryRow label="Verified report" value={report?.reportId ?? "—"} />
         <SummaryRow
-          label="Verified report"
-          value={report ? `${report.reportId} · ${humanize(report.hazardType)}` : "—"}
+          label="Hazard"
+          value={report ? humanize(report.hazardType) : "—"}
         />
         <SummaryRow
           label="Target"
           value={
             warning
-              ? `${warning.targetDistrict}${
-                  warning.gisPolygon?.source === "CUSTOM" ? " (drawn polygon)" : " (whole district)"
-                }`
+              ? warning.gisPolygon?.source === "CUSTOM"
+                ? "Drawn polygon"
+                : "Whole district"
               : "—"
           }
         />
-        <SummaryRow label="Severity" value={humanize(severityLevel)} />
         <SummaryRow
-          label="Audience"
+          label="District"
+          value={warning?.targetDistrict ?? "—"}
+        />
+        <SummaryRow
+          label="Severity"
+          value={
+            <span className={`sp-pill ${severityPill(severityLevel)}`}>
+              {humanize(severityLevel)}
+            </span>
+          }
+        />
+        <SummaryRow
+          label="Accounts targeted"
           value={
             warning
-              ? `${warning.audienceCount} accounts (${warning.smsRecipientCount} SMS)`
+              ? String(warning.audienceCount)
               : audience
-                ? `${audience.audienceCount} accounts`
+                ? String(audience.audienceCount)
                 : "—"
           }
         />
-        <SummaryRow label="Channels" value={activeChannels.join(" · ") || "None"} />
+        <SummaryRow
+          label="SMS recipients"
+          value={warning ? String(warning.smsRecipientCount) : "—"}
+        />
+        <SummaryRow
+          label="Channels"
+          value={
+            activeChannels.length > 0 ? (
+              <span className="sp-badges">
+                {activeChannels.map((channel) => (
+                  <span key={channel} className="sp-pill sp-pill-plain">
+                    {channel}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              "None"
+            )
+          }
+        />
         <SummaryRow
           label="Reach estimate"
           value={
@@ -1228,7 +1534,13 @@ function StepAuthorize({
   );
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
+function SummaryRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div className="wz-summary-row">
       <span className="wz-summary-label">{label}</span>
@@ -1237,8 +1549,19 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StepDelivery({ warning }: { warning: DisasterWarning }) {
+function StepDelivery({
+  warning,
+  extendHours,
+  onExtendHoursChange,
+  onRequestExtend,
+}: {
+  warning: DisasterWarning;
+  extendHours: number;
+  onExtendHoursChange: (hours: number) => void;
+  onRequestExtend: () => void;
+}) {
   const logs = warning.broadcastLogs ?? [];
+  const canExtend = warning.status === "ACTIVE" || warning.status === "EXPIRED";
 
   return (
     <section className="wz-card">
@@ -1246,52 +1569,167 @@ function StepDelivery({ warning }: { warning: DisasterWarning }) {
         <CheckCircle size={30} />
         <div>
           <h2 className="wz-card-title">Broadcast dispatched</h2>
-          <p className="wz-card-lead">
-            {warning.warningId} · {warning.targetDistrict} District ·{" "}
-            {warning.audienceCount} accounts · status {humanize(warning.status)}
-          </p>
+          <div className="sp-badges">
+            <span className={`sp-pill ${statusPill(warning.status)}`}>
+              {humanize(warning.status)}
+            </span>
+            <span className="sp-pill sp-pill-blue">
+              {warning.targetDistrict} District
+            </span>
+          </div>
+          <div className="sp-facts">
+            <span className="sp-fact">
+              <span className="sp-label">Reference</span>
+              <span className="sp-value sp-mono">{warning.warningId}</span>
+            </span>
+            <span className="sp-fact">
+              <span className="sp-label">Audience</span>
+              <span className="sp-value">
+                {warning.audienceCount} accounts
+              </span>
+            </span>
+            <span className="sp-fact">
+              <span className="sp-label">SMS recipients</span>
+              <span className="sp-value">{warning.smsRecipientCount}</span>
+            </span>
+          </div>
         </div>
       </div>
 
       <div className="wz-channel-results">
-        {logs.map((log) => (
-          <div key={log.id} className={`wz-result wz-result-${log.status.toLowerCase()}`}>
-            <div className="wz-result-head">
-              <span className="wz-result-channel">
-                {log.channelType === "push" ? (
-                  <Smartphone size={15} />
-                ) : log.channelType === "sms" ? (
-                  <MessageSquare size={15} />
-                ) : (
-                  <Siren size={15} />
-                )}
-                {humanize(log.channelType)}
-              </span>
-              <span className="wz-result-status">{humanize(log.status)}</span>
+        {logs.map((log) => {
+          const skip = log.status === "SKIPPED" ? skippedCopy(log.channelType) : null;
+
+          return (
+            <div key={log.id} className={`wz-result wz-result-${log.status.toLowerCase()}`}>
+              <div className="wz-result-head">
+                <span className="wz-result-channel">
+                  {log.channelType === "push" ? (
+                    <Smartphone size={15} />
+                  ) : log.channelType === "sms" ? (
+                    <MessageSquare size={15} />
+                  ) : (
+                    <Siren size={15} />
+                  )}
+                  {channelLabel(log.channelType)}
+                </span>
+                <span className="wz-result-status">{deliveryLabel(log.status)}</span>
+              </div>
+
+              {skip ? (
+                <div className="sp-facts">
+                  <span className="sp-fact">
+                    <span className="sp-label">Why</span>
+                    <span className="sp-value sp-muted">{skip.reason}</span>
+                  </span>
+                  <span className="sp-fact">
+                    <span className="sp-label">Next step</span>
+                    <span className="sp-value sp-muted">{skip.nextStep}</span>
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="wz-result-metrics">
+                    <span>{log.targetCount} targeted</span>
+                    <span>{log.deliveryCount} delivered</span>
+                    <span>{log.failureCount} failed</span>
+                  </div>
+
+                  {log.errorMessage && (
+                    <p
+                      className={
+                        isDeliveryError(log.status)
+                          ? "wz-result-error"
+                          : "wz-result-note"
+                      }
+                    >
+                      {log.errorMessage}
+                    </p>
+                  )}
+
+                  {!log.errorMessage && log.status !== "SUCCESS" && (
+                    <p className="wz-result-note">
+                      {log.channelType === "siren"
+                        ? "Siren relay unavailable - push and SMS still went out."
+                        : "Channel reported a partial delivery."}
+                    </p>
+                  )}
+                </>
+              )}
             </div>
-            <div className="wz-result-metrics">
-              <span>{log.targetCount} targeted</span>
-              <span>{log.deliveryCount} delivered</span>
-              <span>{log.failureCount} failed</span>
-            </div>
-            {log.errorMessage && (
-              <p className="wz-result-error">{log.errorMessage}</p>
-            )}
-            {!log.errorMessage && log.status !== "SUCCESS" && (
-              <p className="wz-result-note">
-                {log.channelType === "siren"
-                  ? "Siren relay unavailable — push and SMS still went out."
-                  : "Channel reported a partial delivery."}
-              </p>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {warning.expiresAt && (
-        <p className="wz-help">
-          This warning expires {new Date(warning.expiresAt).toLocaleString()}.
-        </p>
+      <div className="wz-summary">
+        <div className="wz-summary-row">
+          <span className="wz-summary-label">Posted</span>
+          <span className="wz-summary-value">
+            {warning.broadcastAt
+              ? new Date(warning.broadcastAt).toLocaleString()
+              : "Not broadcast yet"}
+          </span>
+        </div>
+
+        {warning.broadcastAt && (
+          <div className="wz-summary-row">
+            <span className="wz-summary-label">Elapsed</span>
+            <span className="wz-summary-value">
+              {relativeTime(warning.broadcastAt)}
+            </span>
+          </div>
+        )}
+
+        <div className="wz-summary-row">
+          <span className="wz-summary-label">Active until</span>
+          <span className="wz-summary-value">
+            {warning.expiresAt
+              ? new Date(warning.expiresAt).toLocaleString()
+              : "No expiry set"}
+          </span>
+        </div>
+
+        {warning.expiresAt && (
+          <div className="wz-summary-row">
+            <span className="wz-summary-label">Time remaining</span>
+            <span className="wz-summary-value">
+              {remainingTime(warning.expiresAt)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {canExtend && (
+        <div className="wz-extend">
+          <div className="wz-field">
+            <label htmlFor="wz-extend">Extend the warning by</label>
+            <select
+              id="wz-extend"
+              value={extendHours}
+              onChange={(event) => onExtendHoursChange(Number(event.target.value))}
+            >
+              {EXPIRY_EXTENSION_HOURS.map((hours) => (
+                <option key={hours} value={hours}>
+                  {hours === 1 ? "1 hour" : `${hours} hours`}
+                </option>
+              ))}
+            </select>
+            <span className="wz-help">
+              {warning.status === "EXPIRED"
+                ? "This warning has expired. Extending it brings it back live with a fresh countdown."
+                : "Time still runs from now, so the new expiry is added on top of the remaining minutes."}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="wz-button wz-button-soft"
+            onClick={onRequestExtend}
+          >
+            <Clock size={15} />
+            Extend expiry
+          </button>
+        </div>
       )}
     </section>
   );
@@ -1323,16 +1761,59 @@ function relativeTime(iso: string): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+function remainingTime(iso: string): string {
+  const minutes = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+
+  if (minutes <= 0) return "expired";
+
+  if (minutes < 60) return `${minutes} min left`;
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) return `${hours} h ${minutes % 60} min left`;
+
+  return `${Math.floor(hours / 24)}d ${hours % 24}h left`;
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
+// Shared with src/styles/dushani-dashboardStyles.ts so the wizard and the
+// dashboard read from one visual system: same elevation, radii and focus ring.
+const Hairline = "#EAECF0";
+const Divider = "#F2F4F7";
+const Surface = "#F9FAFB";
+const RedTint = "#FEF3F2";
+const GreenTint = "#DCFCE7";
+const GreenText = "#166534";
+const ShadowCard = "0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06)";
+const ShadowRaised = "0 4px 12px rgba(16, 24, 40, 0.09), 0 2px 4px rgba(16, 24, 40, 0.05)";
+const FocusRing = "0 0 0 3px rgba(217, 45, 32, 0.16)";
+
 const WIZARD_STYLES = `
   .wz {
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 20px;
     max-width: 940px;
+    color: ${Colors.text};
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wz *,
+  .wz *::before,
+  .wz *::after {
+    box-sizing: border-box;
+  }
+
+  .wz button,
+  .wz input,
+  .wz select,
+  .wz textarea,
+  .wz label {
+    font-family: inherit;
   }
 
   .wz-steps {
@@ -1340,7 +1821,7 @@ const WIZARD_STYLES = `
     list-style: none;
     margin: 0;
     padding: 0;
-    gap: 6px;
+    gap: 8px;
     flex-wrap: wrap;
   }
 
@@ -1348,38 +1829,46 @@ const WIZARD_STYLES = `
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 14px;
-    border-radius: 20px;
+    padding: 7px 13px 7px 9px;
+    border-radius: 999px;
     background: ${Colors.white};
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Hairline};
     font-size: 12px;
     font-weight: 700;
+    letter-spacing: 0.01em;
     color: ${Colors.muted};
+    transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
   }
 
   .wz-step-active {
-    border-color: ${Colors.red};
+    border-color: #fda29b;
     color: ${Colors.redDark};
-    background: ${Colors.redLight};
+    background: ${RedTint};
   }
 
   .wz-step-done {
-    border-color: ${Colors.success};
-    color: #166534;
-    background: #dcfce7;
+    border-color: #a7f3c0;
+    color: ${GreenText};
+    background: ${GreenTint};
   }
 
   .wz-step-dot {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
+    width: 19px;
+    height: 19px;
     border-radius: 50%;
-    background: currentColor;
+    background: ${Colors.border};
     color: ${Colors.white};
-    font-size: 10px;
+    font-size: 10.5px;
     font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .wz-step-active .wz-step-dot {
+    background: ${Colors.red};
+    color: ${Colors.white};
   }
 
   .wz-step-done .wz-step-dot {
@@ -1388,20 +1877,22 @@ const WIZARD_STYLES = `
   }
 
   .wz-card {
+    position: relative;
     background: ${Colors.white};
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Hairline};
     border-radius: 16px;
-    padding: 26px;
+    padding: 26px 28px;
+    box-shadow: ${ShadowCard};
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 18px;
   }
 
   .wz-card-title {
     margin: 0;
-    font-size: 19px;
+    font-size: 15px;
     font-weight: 800;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
     color: ${Colors.text};
   }
 
@@ -1416,34 +1907,65 @@ const WIZARD_STYLES = `
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 13px 15px;
-    border-radius: 11px;
+    padding: 13px 16px;
+    border: 1px solid transparent;
+    border-radius: 12px;
     font-size: 13px;
     font-weight: 600;
+    line-height: 1.5;
+    box-shadow: ${ShadowCard};
+  }
+
+  .wz-banner svg {
+    flex-shrink: 0;
+    margin-top: 1px;
   }
 
   .wz-banner-error {
-    background: ${Colors.redLight};
+    background: ${RedTint};
     color: ${Colors.redDark};
+    border-color: #fda29b;
+  }
+
+  .wz-banner-warn {
+    background: ${Colors.amberLight};
+    color: ${Colors.amberText};
+    border-color: #fdcf5f;
+  }
+
+  .wz-requirements {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
   }
 
   .wz-state {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 10px;
     padding: 22px;
     border: 1px dashed ${Colors.border};
-    border-radius: 12px;
-    background: ${Colors.white};
+    border-radius: 14px;
+    background: ${Surface};
     color: ${Colors.muted};
     font-size: 13px;
+    font-weight: 600;
+  }
+
+  .wz-state svg {
+    color: ${Colors.red};
   }
 
   .wz-empty {
     background: ${Colors.white};
-    border: 1px solid ${Colors.border};
+    border: 1px solid ${Hairline};
     border-radius: 16px;
-    padding: 44px 26px;
+    padding: 46px 26px;
+    box-shadow: ${ShadowCard};
     text-align: center;
     color: ${Colors.muted};
     display: flex;
@@ -1452,9 +1974,16 @@ const WIZARD_STYLES = `
     gap: 12px;
   }
 
+  .wz-empty > svg {
+    color: ${Colors.red};
+    opacity: 0.9;
+  }
+
   .wz-empty h3 {
     margin: 0;
-    font-size: 17px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
     color: ${Colors.text};
   }
 
@@ -1462,7 +1991,7 @@ const WIZARD_STYLES = `
     margin: 0;
     max-width: 460px;
     font-size: 13px;
-    line-height: 1.6;
+    line-height: 1.65;
   }
 
   .wz-report-list {
@@ -1472,56 +2001,86 @@ const WIZARD_STYLES = `
   }
 
   .wz-report {
+    position: relative;
     display: flex;
-    gap: 12px;
+    gap: 14px;
     text-align: left;
-    padding: 16px;
-    border: 1px solid ${Colors.border};
-    border-radius: 12px;
+    padding: 16px 18px;
+    border: 1px solid ${Hairline};
+    border-radius: 14px;
     background: ${Colors.white};
+    box-shadow: ${ShadowCard};
     cursor: pointer;
-    transition: border-color 150ms ease, box-shadow 150ms ease;
+    transition: border-color 160ms ease, box-shadow 160ms ease,
+      transform 160ms ease, background 160ms ease;
   }
 
-  .wz-report:hover {
+  .wz-report:hover:not(.wz-report-used) {
+    border-color: ${Colors.border};
+    box-shadow: ${ShadowRaised};
+    transform: translateY(-1px);
+  }
+
+  .wz-report:focus-visible {
+    outline: none;
     border-color: ${Colors.red};
+    box-shadow: ${FocusRing};
   }
 
   .wz-report-selected {
     border-color: ${Colors.red};
-    box-shadow: 0 0 0 3px ${Colors.redLight};
+    background: ${RedTint};
+    box-shadow: 0 1px 3px rgba(217, 45, 32, 0.16);
+  }
+
+  .wz-report-selected:hover:not(.wz-report-used) {
+    border-color: ${Colors.redDark};
+    transform: none;
+  }
+
+  .wz-report-used,
+  .wz-report-used:hover {
+    border-color: ${Hairline};
+    background: ${Surface};
+    box-shadow: none;
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .wz-report-used .wz-report-radio {
+    color: ${Colors.muted};
   }
 
   .wz-report-radio {
     color: ${Colors.red};
     display: flex;
     align-items: center;
+    justify-content: center;
     flex-shrink: 0;
-    width: 18px;
-    margin-top: 2px;
+    width: 20px;
+    margin-top: 1px;
   }
 
   .wz-report-body {
     display: flex;
     flex-direction: column;
     gap: 5px;
+    min-width: 0;
   }
 
   .wz-report-headline {
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 800;
+    letter-spacing: -0.01em;
     color: ${Colors.text};
   }
 
   .wz-report-desc {
     font-size: 13px;
+    font-weight: 500;
     color: ${Colors.text};
-    line-height: 1.5;
-  }
-
-  .wz-report-meta {
-    font-size: 11px;
-    color: ${Colors.muted};
+    line-height: 1.55;
   }
 
   .wz-field-row {
@@ -1533,13 +2092,16 @@ const WIZARD_STYLES = `
   .wz-field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
+    min-width: 0;
   }
 
   .wz-field label {
-    font-size: 12px;
-    font-weight: 700;
-    color: ${Colors.text};
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: ${Colors.muted};
   }
 
   .wz-field select,
@@ -1548,31 +2110,50 @@ const WIZARD_STYLES = `
     border-radius: 10px;
     background: ${Colors.white};
     color: ${Colors.text};
-    font-size: 14px;
-    font-family: inherit;
-    padding: 11px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    transition: border-color 140ms ease, box-shadow 140ms ease;
   }
 
   .wz-field select {
-    height: 46px;
+    height: 38px;
+    padding: 0 12px;
   }
 
   .wz-field textarea {
+    padding: 10px 12px;
+    line-height: 1.55;
     resize: vertical;
-    line-height: 1.5;
+  }
+
+  .wz-field select:hover:not(:disabled),
+  .wz-field textarea:hover:not(:disabled) {
+    border-color: ${Colors.navy};
   }
 
   .wz-field select:focus,
   .wz-field textarea:focus {
     outline: none;
     border-color: ${Colors.red};
-    box-shadow: 0 0 0 3px ${Colors.redLight};
+  }
+
+  .wz-field select:focus-visible,
+  .wz-field textarea:focus-visible {
+    box-shadow: ${FocusRing};
+  }
+
+  .wz-field select:disabled,
+  .wz-field textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .wz-help {
     font-size: 12px;
+    font-weight: 500;
     color: ${Colors.muted};
-    line-height: 1.5;
+    line-height: 1.55;
   }
 
   .wz-field-error-text {
@@ -1582,7 +2163,13 @@ const WIZARD_STYLES = `
 
   .wz-segment {
     display: flex;
-    gap: 6px;
+    width: 100%;
+    height: 38px;
+    gap: 3px;
+    padding: 3px;
+    background: ${Surface};
+    border: 1px solid ${Colors.border};
+    border-radius: 10px;
   }
 
   .wz-segment-button {
@@ -1591,34 +2178,50 @@ const WIZARD_STYLES = `
     align-items: center;
     justify-content: center;
     gap: 7px;
-    height: 46px;
-    border: 1px solid ${Colors.border};
-    border-radius: 10px;
-    background: ${Colors.white};
+    border: none;
+    border-radius: 7px;
+    background: transparent;
     color: ${Colors.muted};
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
+    transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .wz-segment-button:hover {
+    color: ${Colors.text};
+    background: ${Colors.white};
+  }
+
+  .wz-segment-button:focus-visible {
+    outline: none;
+    box-shadow: ${FocusRing};
   }
 
   .wz-segment-active {
-    border-color: ${Colors.navy};
     background: ${Colors.navy};
     color: ${Colors.white};
+    box-shadow: 0 1px 3px rgba(11, 31, 51, 0.28);
+  }
+
+  .wz-segment-active:hover {
+    color: ${Colors.white};
+    background: ${Colors.navy};
   }
 
   .wz-audience {
-    border-top: 1px solid ${Colors.border};
-    padding-top: 16px;
+    border-top: 1px solid ${Divider};
+    padding-top: 18px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
   }
 
   .wz-audience h3 {
     margin: 0;
     font-size: 13px;
     font-weight: 800;
+    letter-spacing: -0.01em;
     color: ${Colors.text};
     display: flex;
     align-items: center;
@@ -1628,57 +2231,106 @@ const WIZARD_STYLES = `
   .wz-audience-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 10px;
+    gap: 12px;
   }
 
   .wz-stat {
-    border: 1px solid ${Colors.border};
-    border-radius: 10px;
-    padding: 12px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid ${Hairline};
+    border-radius: 12px;
+    padding: 14px 16px 14px 18px;
+    background: ${Colors.white};
+    box-shadow: ${ShadowCard};
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
+    transition: transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .wz-stat::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: ${Colors.border};
+  }
+
+  .wz-stat:nth-child(1)::before {
+    background: ${Colors.blue};
+  }
+
+  .wz-stat:nth-child(2)::before {
+    background: ${Colors.success};
+  }
+
+  .wz-stat:nth-child(3)::before {
+    background: ${Colors.amber};
+  }
+
+  .wz-stat:nth-child(4)::before {
+    background: ${Colors.red};
+  }
+
+  .wz-stat:hover {
+    transform: translateY(-2px);
+    box-shadow: ${ShadowRaised};
   }
 
   .wz-stat-value {
-    font-size: 20px;
+    font-size: 24px;
+    line-height: 1.1;
     font-weight: 800;
+    letter-spacing: -0.02em;
     color: ${Colors.text};
+    font-variant-numeric: tabular-nums;
   }
 
   .wz-stat-label {
     font-size: 11px;
     color: ${Colors.muted};
     font-weight: 600;
+    line-height: 1.35;
   }
 
   .wz-audience-line {
     margin: 0;
+    padding: 10px 12px;
+    border: 1px solid ${Hairline};
+    border-radius: 10px;
+    background: ${Surface};
     font-size: 13px;
     font-weight: 600;
     display: flex;
     align-items: center;
     gap: 8px;
     color: ${Colors.muted};
+    font-variant-numeric: tabular-nums;
   }
 
   .wz-audience-ok {
-    color: #166534;
+    background: ${GreenTint};
+    border-color: #a7f3c0;
+    color: ${GreenText};
   }
 
   .wz-audience-block {
+    background: ${RedTint};
+    border-color: #fda29b;
     color: ${Colors.redDark};
   }
 
   .wz-message-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 14px;
+    gap: 16px;
   }
 
   .wz-channels {
-    border-top: 1px solid ${Colors.border};
-    padding-top: 16px;
+    border-top: 1px solid ${Divider};
+    padding-top: 18px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1688,6 +2340,7 @@ const WIZARD_STYLES = `
     margin: 0;
     font-size: 13px;
     font-weight: 800;
+    letter-spacing: -0.01em;
     color: ${Colors.text};
   }
 
@@ -1700,55 +2353,93 @@ const WIZARD_STYLES = `
   .wz-channel {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
     padding: 12px 14px;
     border: 1px solid ${Colors.border};
     border-radius: 10px;
+    background: ${Colors.white};
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
     font-size: 13px;
     font-weight: 700;
     color: ${Colors.muted};
     cursor: pointer;
+    transition: border-color 140ms ease, background 140ms ease, color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .wz-channel:hover {
+    border-color: ${Colors.navy};
+    color: ${Colors.text};
+  }
+
+  .wz-channel:focus-within {
+    outline: none;
+    border-color: ${Colors.red};
+    box-shadow: ${FocusRing};
   }
 
   .wz-channel input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
     accent-color: ${Colors.red};
+    cursor: pointer;
+    flex-shrink: 0;
   }
 
   .wz-channel-on {
     border-color: ${Colors.red};
     color: ${Colors.redDark};
-    background: ${Colors.redLight};
+    background: ${RedTint};
+    box-shadow: 0 1px 3px rgba(217, 45, 32, 0.14);
+  }
+
+  .wz-channel-on:hover {
+    border-color: ${Colors.redDark};
+    color: ${Colors.redDark};
   }
 
   .wz-channel-locked {
     cursor: not-allowed;
-    opacity: 0.85;
+    opacity: 0.8;
   }
 
-  .wz-authorize {
-    border-color: ${Colors.red};
+  .wz-channel-locked:hover {
+    border-color: ${Colors.border};
+  }
+
+  .wz-authorize::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 14px;
+    bottom: 14px;
+    width: 4px;
+    border-radius: 0 4px 4px 0;
+    background: linear-gradient(180deg, ${Colors.red} 0%, ${Colors.redDark} 100%);
   }
 
   .wz-summary {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 10px 18px;
-    background: ${Colors.background};
-    border: 1px solid ${Colors.border};
-    border-radius: 12px;
-    padding: 16px;
+    gap: 14px 20px;
+    background: ${Surface};
+    border: 1px solid ${Hairline};
+    border-radius: 14px;
+    padding: 18px 20px;
   }
 
   .wz-summary-row {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
+    min-width: 0;
   }
 
   .wz-summary-label {
-    font-size: 10px;
+    font-size: 10.5px;
     font-weight: 800;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
     color: ${Colors.muted};
   }
@@ -1757,31 +2448,47 @@ const WIZARD_STYLES = `
     font-size: 13px;
     font-weight: 700;
     color: ${Colors.text};
+    word-break: break-word;
+    font-variant-numeric: tabular-nums;
   }
 
   .wz-pinbox {
     display: flex;
     gap: 10px;
     justify-content: center;
-    padding: 8px 0;
+    padding: 12px 0 4px;
   }
 
   .wz-pinbox-digit {
     width: 52px;
-    height: 62px;
+    height: 60px;
     border: 1px solid ${Colors.border};
     border-radius: 12px;
     text-align: center;
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 800;
     color: ${Colors.text};
     background: ${Colors.white};
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .wz-pinbox-digit:hover:not(:disabled) {
+    border-color: ${Colors.navy};
   }
 
   .wz-pinbox-digit:focus {
     outline: none;
     border-color: ${Colors.red};
-    box-shadow: 0 0 0 3px ${Colors.redLight};
+  }
+
+  .wz-pinbox-digit:focus-visible {
+    box-shadow: ${FocusRing};
+  }
+
+  .wz-pinbox-digit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .wz-link {
@@ -1793,16 +2500,34 @@ const WIZARD_STYLES = `
     font-weight: 700;
     cursor: pointer;
     text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .wz-link:hover {
+    color: ${Colors.blueDark};
+  }
+
+  .wz-link:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px rgba(21, 112, 239, 0.2);
   }
 
   .wz-delivered {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 16px;
   }
 
   .wz-delivered > svg {
-    color: ${Colors.success};
+    color: ${GreenText};
+    background: ${GreenTint};
+    border: 1px solid #a7f3c0;
+    border-radius: 999px;
+    padding: 8px;
+    width: 48px;
+    height: 48px;
+    box-sizing: border-box;
     flex-shrink: 0;
   }
 
@@ -1813,26 +2538,49 @@ const WIZARD_STYLES = `
   }
 
   .wz-result {
-    border: 1px solid ${Colors.border};
-    border-left-width: 4px;
-    border-radius: 12px;
-    padding: 14px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid ${Hairline};
+    border-radius: 14px;
+    padding: 16px 16px 16px 19px;
+    background: ${Colors.white};
+    box-shadow: ${ShadowCard};
     display: flex;
     flex-direction: column;
     gap: 10px;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
   }
 
-  .wz-result-success {
-    border-left-color: ${Colors.success};
+  .wz-result::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: ${Colors.border};
   }
 
-  .wz-result-partial {
-    border-left-color: ${Colors.amber};
+  .wz-result:hover {
+    border-color: ${Colors.border};
+    box-shadow: ${ShadowRaised};
   }
 
-  .wz-result-failed,
-  .wz-result-pending {
-    border-left-color: ${Colors.red};
+  .wz-result-success::before {
+    background: ${Colors.success};
+  }
+
+  .wz-result-partial::before {
+    background: ${Colors.amber};
+  }
+
+  .wz-result-failed::before,
+  .wz-result-pending::before {
+    background: ${Colors.red};
+  }
+
+  .wz-result-skipped::before {
+    background: ${Colors.border};
   }
 
   .wz-result-head {
@@ -1848,27 +2596,85 @@ const WIZARD_STYLES = `
     gap: 8px;
     font-size: 13px;
     font-weight: 800;
+    letter-spacing: -0.01em;
     color: ${Colors.text};
   }
 
+  .wz-result-channel svg {
+    color: ${Colors.muted};
+    flex-shrink: 0;
+  }
+
   .wz-result-status {
-    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid ${Colors.border};
+    background: ${Surface};
+    font-size: 10.5px;
     font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    color: ${Colors.muted};
+  }
+
+  .wz-result-status::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+
+  .wz-result-success .wz-result-status {
+    background: ${GreenTint};
+    border-color: #a7f3c0;
+    color: ${GreenText};
+  }
+
+  .wz-result-partial .wz-result-status {
+    background: ${Colors.amberLight};
+    border-color: #fdcf5f;
+    color: ${Colors.amberText};
+  }
+
+  .wz-result-failed .wz-result-status {
+    background: ${Colors.redLight};
+    border-color: #fda29b;
+    color: ${Colors.redDark};
+  }
+
+  .wz-result-pending .wz-result-status {
+    background: ${Colors.blueLight};
+    border-color: #b5d8fb;
+    color: ${Colors.blueDark};
+  }
+
+  .wz-result-skipped .wz-result-status {
+    background: ${Colors.background};
+    border-color: ${Colors.border};
     color: ${Colors.muted};
   }
 
   .wz-result-metrics {
     display: flex;
-    gap: 12px;
+    gap: 14px;
     flex-wrap: wrap;
     font-size: 12px;
+    font-weight: 600;
     color: ${Colors.muted};
+    font-variant-numeric: tabular-nums;
   }
 
   .wz-result-error {
     margin: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: ${RedTint};
     font-size: 12px;
     font-weight: 600;
     color: ${Colors.redDark};
@@ -1877,7 +2683,24 @@ const WIZARD_STYLES = `
   .wz-result-note {
     margin: 0;
     font-size: 12px;
+    font-weight: 500;
     color: ${Colors.muted};
+    line-height: 1.5;
+  }
+
+  .wz-extend {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .wz-extend .wz-field {
+    flex: 1 1 220px;
+  }
+
+  .wz-card > .wz-button {
+    align-self: flex-start;
   }
 
   .wz-footer {
@@ -1894,14 +2717,37 @@ const WIZARD_STYLES = `
   .wz-button {
     display: inline-flex;
     align-items: center;
-    gap: 9px;
-    height: 44px;
-    padding: 0 20px;
+    justify-content: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 15px;
+    border: 1px solid ${Colors.border};
     border-radius: 10px;
+    background: ${Colors.white};
+    color: ${Colors.text};
     font-size: 13px;
     font-weight: 700;
+    white-space: nowrap;
     cursor: pointer;
-    border: 1px solid transparent;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease,
+      transform 140ms ease, box-shadow 140ms ease;
+  }
+
+  .wz-button:hover:not(:disabled) {
+    border-color: ${Colors.navy};
+    color: ${Colors.navy};
+    box-shadow: ${ShadowCard};
+  }
+
+  .wz-button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .wz-button:focus-visible {
+    outline: none;
+    border-color: ${Colors.red};
+    box-shadow: ${FocusRing};
   }
 
   .wz-button:disabled {
@@ -1911,20 +2757,28 @@ const WIZARD_STYLES = `
 
   .wz-button-primary {
     background: ${Colors.red};
+    border-color: ${Colors.red};
     color: ${Colors.white};
+    box-shadow: 0 1px 3px rgba(217, 45, 32, 0.32);
   }
 
   .wz-button-primary:hover:not(:disabled) {
     background: ${Colors.redDark};
+    border-color: ${Colors.redDark};
+    color: ${Colors.white};
+    box-shadow: 0 4px 12px -4px rgba(180, 35, 24, 0.5);
   }
 
   .wz-button-danger {
-    background: ${Colors.red};
-    color: ${Colors.white};
+    background: ${RedTint};
+    border-color: #fda29b;
+    color: ${Colors.redDark};
   }
 
   .wz-button-danger:hover:not(:disabled) {
-    background: ${Colors.redDark};
+    background: ${Colors.redLight};
+    border-color: ${Colors.red};
+    color: ${Colors.redDark};
   }
 
   .wz-button-ghost {
@@ -1933,14 +2787,16 @@ const WIZARD_STYLES = `
     color: ${Colors.text};
   }
 
-  .wz-button-ghost:hover:not(:disabled) {
-    border-color: ${Colors.navy};
-    color: ${Colors.navy};
+  .wz-button-soft {
+    background: ${Colors.blueLight};
+    border-color: #b5d8fb;
+    color: ${Colors.blueDark};
+    box-shadow: 0 1px 2px rgba(21, 112, 239, 0.12);
   }
 
-  .wz-button-soft {
-    align-self: flex-start;
-    background: ${Colors.blueLight};
+  .wz-button-soft:hover:not(:disabled) {
+    background: #bcdcfb;
+    border-color: ${Colors.blue};
     color: ${Colors.blueDark};
   }
 
@@ -1954,15 +2810,51 @@ const WIZARD_STYLES = `
     }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .wz *,
+    .wz *::before,
+    .wz *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
   @media (max-width: 720px) {
+    .wz {
+      gap: 16px;
+    }
+
     .wz-card {
-      padding: 18px;
+      padding: 20px 18px;
+    }
+
+    .wz-field-row,
+    .wz-message-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .wz-pinbox {
+      gap: 7px;
     }
 
     .wz-pinbox-digit {
       width: 42px;
-      height: 52px;
+      height: 54px;
       font-size: 20px;
+    }
+
+    .wz-footer {
+      gap: 10px;
+    }
+
+    .wz-footer .wz-button {
+      flex: 1 1 auto;
+    }
+
+    .wz-footer .wz-button-primary {
+      margin-left: 0;
     }
   }
 `;

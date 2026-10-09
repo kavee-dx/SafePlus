@@ -71,7 +71,6 @@ export const REPORT_STYLES = `
 
   .rc-banner { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; }
   .rc-banner-error { background: ${Colors.redLight}; color: ${Colors.redDark}; }
-  .rc-state { display: flex; align-items: center; gap: 10px; padding: 22px; border: 1px dashed ${Colors.border}; border-radius: 12px; background: ${Colors.white}; color: ${Colors.muted}; font-size: 13px; }
   .rc-list { display: flex; flex-direction: column; gap: 14px; }
 
   .rc-card { background: ${Colors.white}; border: 1px solid ${Colors.border}; border-radius: 14px; padding: 20px; text-align: left; width: 100%; cursor: pointer; font: inherit; color: inherit; }
@@ -79,7 +78,6 @@ export const REPORT_STYLES = `
   .rc-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
   .rc-card-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .rc-card-title h3 { margin: 0; font-size: 16px; font-weight: 800; color: ${Colors.text}; letter-spacing: -0.02em; }
-  .rc-report-id { font-size: 11px; font-weight: 700; color: ${Colors.muted}; letter-spacing: 0.04em; }
 
   .rc-sev { padding: 5px 11px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
   .rc-sev-low { background: #dcfce7; color: #166534; }
@@ -93,13 +91,8 @@ export const REPORT_STYLES = `
   .rc-status-verified { background: #dcfce7; color: #166534; }
   .rc-status-rejected { background: ${Colors.redLight}; color: ${Colors.redDark}; }
 
-  .rc-description { margin: 0 0 12px; font-size: 14px; line-height: 1.6; color: ${Colors.text}; }
-  .rc-meta { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: ${Colors.muted}; }
-  .rc-meta span { display: inline-flex; align-items: center; gap: 6px; }
-  .rc-danger { color: ${Colors.red}; font-weight: 800; }
   .rc-thumbstrip { display: flex; gap: 8px; margin-top: 12px; }
   .rc-thumb { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; border: 1px solid ${Colors.border}; background: ${Colors.background}; }
-  .rc-thumb-more { width: 56px; height: 56px; border-radius: 10px; border: 1px dashed ${Colors.border}; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: ${Colors.muted}; }
 
   /* Detail + verify pages */
   .rc-page-head { display: flex; align-items: center; gap: 12px; }
@@ -107,21 +100,12 @@ export const REPORT_STYLES = `
   .rc-back:hover { border-color: ${Colors.blue}; color: ${Colors.blue}; }
   .rc-panel { background: ${Colors.white}; border: 1px solid ${Colors.border}; border-radius: 14px; padding: 22px; }
   .rc-panel h2 { margin: 0 0 14px; font-size: 15px; font-weight: 800; color: ${Colors.text}; }
-  .rc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  .rc-field { display: flex; flex-direction: column; gap: 4px; }
   .rc-field-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: ${Colors.muted}; }
-  .rc-field-value { font-size: 14px; color: ${Colors.text}; font-weight: 600; }
   .rc-columns { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; align-items: start; }
   .rc-evidence { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   .rc-evidence figure { margin: 0; }
   .rc-evidence img, .rc-evidence video { width: 100%; height: 150px; object-fit: cover; border-radius: 12px; border: 1px solid ${Colors.border}; background: ${Colors.background}; }
   .rc-evidence figcaption { font-size: 11px; color: ${Colors.muted}; margin-top: 5px; text-align: center; }
-  .rc-empty { font-size: 13px; color: ${Colors.muted}; }
-
-  .rc-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-  .rc-timeline li { display: flex; gap: 10px; font-size: 13px; color: ${Colors.text}; }
-  .rc-dot { width: 9px; height: 9px; border-radius: 50%; background: ${Colors.blue}; margin-top: 5px; flex: none; }
-  .rc-note-box { background: ${Colors.background}; border: 1px solid ${Colors.border}; border-radius: 10px; padding: 12px; font-size: 13px; color: ${Colors.text}; }
 
   .rc-actions { display: flex; gap: 10px; flex-wrap: wrap; }
   .rc-button { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 18px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; border: 1px solid transparent; }
@@ -145,6 +129,5 @@ export const REPORT_STYLES = `
 
   @media (max-width: 900px) {
     .rc-columns { grid-template-columns: 1fr; }
-    .rc-grid { grid-template-columns: 1fr; }
   }
 `;

@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
-  MapPin,
   Megaphone,
   MessageSquarePlus,
 } from "lucide-react";
@@ -76,57 +75,96 @@ export default function ReportDetailView({
       <div className="rc-columns">
         <div className="rc" style={{ gap: 18 }}>
           <section className="rc-panel">
-            <div className="rc-card-title" style={{ marginBottom: 16 }}>
+            <h2>Report</h2>
+            <div className="rc-card-title" style={{ marginBottom: 14 }}>
               <span className={`rc-sev ${SEVERITY_CLASS[report.severityLevel]}`}>
                 {label(report.severityLevel)}
               </span>
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>
-                {label(report.hazardType)} · {report.locationDistrict}
+                {label(report.hazardType)}
               </h3>
             </div>
 
-            <div className="rc-grid">
-              <DetailField label="Report reference" value={report.reportId} />
-              <DetailField label="Submitted" value={relativeTime(report.createdAt)} />
-              <DetailField label="Date & time observed" value={formatDateTime(report.observedAt)} />
-              <DetailField
-                label="Immediate danger"
-                value={report.immediateDanger ? "Yes — people at risk now" : "Not flagged"}
-                danger={report.immediateDanger}
-              />
-              <DetailField label="Reporter" value={report.reporterName ?? "Anonymous citizen"} />
-              <DetailField label="Reporter phone" value={report.reporterPhone ?? "—"} />
-              <DetailField
-                label="Estimated people affected"
-                value={report.affectedPopulation ? `~${report.affectedPopulation}` : "—"}
-              />
-              <DetailField label="Affected area / landmark" value={report.landmark ?? "—"} />
-              <DetailField
-                label="GPS location"
-                value={
-                  report.locationLat !== undefined && report.locationLng !== undefined
-                    ? `${report.locationLat.toFixed(5)}, ${report.locationLng.toFixed(5)}`
-                    : "Not attached"
-                }
-                icon={<MapPin size={13} />}
-              />
+            <div className="sp-list">
+              <div className="sp-row">
+                <span className="sp-label">Report reference</span>
+                <span className="sp-value sp-mono">{report.reportId}</span>
+              </div>
+              <div className="sp-row">
+                <span className="sp-label">Submitted</span>
+                <span className="sp-value">{relativeTime(report.createdAt)}</span>
+              </div>
+              <div className="sp-row">
+                <span className="sp-label">Date &amp; time observed</span>
+                <span className="sp-value">{formatDateTime(report.observedAt)}</span>
+              </div>
+              <div className="sp-row">
+                <span className="sp-label">Immediate danger</span>
+                <span className="sp-value">
+                  {report.immediateDanger ? (
+                    <span className="sp-pill sp-pill-red">Yes — people at risk now</span>
+                  ) : (
+                    <span className="sp-muted">Not flagged</span>
+                  )}
+                </span>
+              </div>
+              <div className="sp-row">
+                <span className="sp-label">People affected</span>
+                <span className="sp-value">
+                  {report.affectedPopulation ? `~${report.affectedPopulation}` : "—"}
+                </span>
+              </div>
             </div>
 
-            <div style={{ marginTop: 18 }}>
-              <div className="rc-field-label">Description</div>
-              <p className="rc-description" style={{ marginTop: 6 }}>
-                {report.description}
-              </p>
+            <div className="sp-stack" style={{ marginTop: 16 }}>
+              <span className="rc-field-label">Citizen&rsquo;s report</span>
+              <div className="sp-block">{report.description}</div>
+            </div>
+          </section>
+
+          <section className="rc-panel">
+            <h2>Location</h2>
+            <div className="sp-list">
+              <div className="sp-row">
+                <span className="sp-label">District</span>
+                <span className="sp-value">{report.locationDistrict}</span>
+              </div>
+              <div className="sp-row">
+                <span className="sp-label">GPS coordinates</span>
+                <span className="sp-value sp-mono">
+                  {report.locationLat !== undefined && report.locationLng !== undefined
+                    ? report.locationLat.toFixed(5) + ", " + report.locationLng.toFixed(5)
+                    : "Not attached"}
+                </span>
+              </div>
+              <div className="sp-row">
+                <span className="sp-label">Affected area / landmark</span>
+                <span className="sp-value">{report.landmark ?? "—"}</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="rc-panel">
+            <h2>Reporter</h2>
+            <div className="sp-list">
+              <div className="sp-row">
+                <span className="sp-label">Reported by</span>
+                <span className="sp-value">{report.reporterName ?? "Anonymous citizen"}</span>
+              </div>
+              <div className="sp-row">
+                <span className="sp-label">Contact</span>
+                <span className="sp-value sp-mono">{report.reporterPhone ?? "—"}</span>
+              </div>
             </div>
           </section>
 
           <section className="rc-panel">
             <h2>Evidence ({report.attachments.length})</h2>
             {report.attachments.length === 0 ? (
-              <p className="rc-empty">
+              <div className="sp-empty">
                 No photo or video was attached (alternative flow A1). Verify using the
                 description, location and reporter contact.
-              </p>
+              </div>
             ) : (
               <div className="rc-evidence">
                 {report.attachments.map((attachment) => (
@@ -172,19 +210,46 @@ export default function ReportDetailView({
             )}
 
             {report.status === "ADDITIONAL_INFO_REQUIRED" && (
-              <div className="rc-note-box">
-                Waiting on the citizen. You asked: “{report.infoRequestReason}” on{" "}
-                {formatDateTime(report.infoRequestedAt)}. The report returns to the queue
-                once they update it.
+              <div className="sp-stack">
+                <span className="rc-field-label">You asked the citizen</span>
+                <div className="sp-block">“{report.infoRequestReason}”</div>
+                <div className="sp-list">
+                  <div className="sp-row">
+                    <span className="sp-label">Requested on</span>
+                    <span className="sp-value">{formatDateTime(report.infoRequestedAt)}</span>
+                  </div>
+                  <div className="sp-row">
+                    <span className="sp-label">Next step</span>
+                    <span className="sp-value sp-value-regular">
+                      Waiting on the citizen — the report returns to the queue once they
+                      update it.
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
 
             {report.status === "VERIFIED" && (
               <div className="rc-actions" style={{ flexDirection: "column" }}>
-                <div className="rc-note-box">
-                  Verified {formatDateTime(report.verifiedAt)}
-                  {report.verifiedByName ? ` by ${report.verifiedByName}` : ""}
-                  {report.verificationNotes ? ` — ${report.verificationNotes}` : ""}
+                <div className="sp-list">
+                  <div className="sp-row">
+                    <span className="sp-label">Verified on</span>
+                    <span className="sp-value">{formatDateTime(report.verifiedAt)}</span>
+                  </div>
+                  {report.verifiedByName && (
+                    <div className="sp-row">
+                      <span className="sp-label">Verified by</span>
+                      <span className="sp-value">{report.verifiedByName}</span>
+                    </div>
+                  )}
+                  {report.verificationNotes && (
+                    <div className="sp-row">
+                      <span className="sp-label">Officer note</span>
+                      <span className="sp-value sp-value-regular">
+                        {report.verificationNotes}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -198,10 +263,23 @@ export default function ReportDetailView({
             )}
 
             {report.status === "REJECTED" && (
-              <div className="rc-note-box">
-                Rejected {formatDateTime(report.verifiedAt)}
-                {report.verifiedByName ? ` by ${report.verifiedByName}` : ""}. Reason:{" "}
-                {report.verificationNotes ?? "—"}
+              <div className="sp-list">
+                <div className="sp-row">
+                  <span className="sp-label">Rejected on</span>
+                  <span className="sp-value">{formatDateTime(report.verifiedAt)}</span>
+                </div>
+                {report.verifiedByName && (
+                  <div className="sp-row">
+                    <span className="sp-label">Rejected by</span>
+                    <span className="sp-value">{report.verifiedByName}</span>
+                  </div>
+                )}
+                <div className="sp-row">
+                  <span className="sp-label">Reason</span>
+                  <span className="sp-value sp-value-regular">
+                    {report.verificationNotes ?? "—"}
+                  </span>
+                </div>
               </div>
             )}
 
@@ -232,64 +310,48 @@ export default function ReportDetailView({
           </section>
 
           <section className="rc-panel">
-            <h2>Timeline</h2>
-            <ul className="rc-timeline">
-              <li>
-                <span className="rc-dot" />
-                <span>
-                  Submitted by {report.reporterName ?? "a citizen"} ·{" "}
-                  {formatDateTime(report.createdAt)}
+            <h2>Status trail</h2>
+            <div className="sp-list">
+              <div className="sp-row">
+                <span className="sp-label">Submitted</span>
+                <span className="sp-value">
+                  {formatDateTime(report.createdAt)}{" "}
+                  <span className="sp-muted">by {report.reporterName ?? "a citizen"}</span>
                 </span>
-              </li>
+              </div>
               {report.infoRequestedAt && (
-                <li>
-                  <span className="rc-dot" />
-                  <span>More information requested · {formatDateTime(report.infoRequestedAt)}</span>
-                </li>
+                <div className="sp-row">
+                  <span className="sp-label">More information requested</span>
+                  <span className="sp-value">{formatDateTime(report.infoRequestedAt)}</span>
+                </div>
               )}
               {report.verifiedAt && (
-                <li>
-                  <span className="rc-dot" />
-                  <span>
-                    {report.status === "VERIFIED" ? "Verified" : "Decided"} ·{" "}
-                    {formatDateTime(report.verifiedAt)}
+                <div className="sp-row">
+                  <span className="sp-label">
+                    {report.status === "VERIFIED" ? "Verified" : "Decided"}
                   </span>
-                </li>
+                  <span className="sp-value">{formatDateTime(report.verifiedAt)}</span>
+                </div>
               )}
-              {(report.warningCount ?? 0) > 0 && (
-                <li>
-                  <span className="rc-dot" />
-                  <span>
-                    {report.warningCount} warning{report.warningCount === 1 ? "" : "s"} issued from
-                    this report
-                  </span>
-                </li>
-              )}
-            </ul>
+            </div>
           </section>
+
+          {(report.warningCount ?? 0) > 0 && (
+            <section className="rc-panel">
+              <h2>Warning linkage</h2>
+              <div className="sp-list">
+                <div className="sp-row">
+                  <span className="sp-label">Warnings issued</span>
+                  <span className="sp-value">
+                    {report.warningCount} warning{report.warningCount === 1 ? "" : "s"} issued
+                    from this report
+                  </span>
+                </div>
+              </div>
+            </section>
+          )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function DetailField({
-  label: fieldLabel,
-  value,
-  icon,
-  danger,
-}: {
-  label: string;
-  value: string;
-  icon?: React.ReactNode;
-  danger?: boolean;
-}) {
-  return (
-    <div className="rc-field">
-      <span className="rc-field-label">{fieldLabel}</span>
-      <span className={`rc-field-value ${danger ? "rc-danger" : ""}`}>
-        {icon} {value}
-      </span>
     </div>
   );
 }

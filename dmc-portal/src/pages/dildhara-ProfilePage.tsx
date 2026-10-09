@@ -15,6 +15,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { Colors } from "../constants/theme";
+import { DATA_STYLES } from "../styles/dushani-dataStyles";
 import {
   PORTAL_ROLE_LABELS,
   PortalApiError,
@@ -69,8 +70,7 @@ const PERSONAL: SectionDef = {
   fields: [NAME, PHONE],
 };
 
-// Which fields each role sees. `editable` fields can be changed here; the rest
-// were verified by the Super Admin and stay locked.
+// Editable fields can be changed here; the rest were verified by the Super Admin and stay locked.
 const ROLE_SECTIONS: Record<string, SectionDef[]> = {
   DMC_OFFICER: [
     PERSONAL,
@@ -144,6 +144,9 @@ const initials = (name: string): string =>
 
 // Darker green for text on a light success tint (Colors.success is too light for text).
 const SUCCESS_TEXT = "#067647";
+// Identifiers and phone numbers read as fixed-width codes; everything else stays proportional.
+const isMono = (key: string): boolean =>
+  key === "officerId" || key === "registrationNumber" || key === "phoneNumber";
 
 interface ProfilePageProps {
   token: string;
@@ -269,9 +272,23 @@ export default function ProfilePage({
 
   const roleLabel = PORTAL_ROLE_LABELS[account.role] ?? account.role;
   const name = String(profile.user.fullName ?? account.fullName);
+  const statusText = asText(profile.user.status).replace(/_/g, " ");
   const active = profile.user.status === "ACTIVE";
+  const statusClass = active ? "sp-pill sp-pill-green" : "sp-pill sp-pill-red";
 
-  const renderField = (field: FieldDef) => {
+  const renderRow = (field: FieldDef) => (
+    <li className="sp-row" key={field.key}>
+      <span className="sp-label">
+        {field.label}
+        {editing && <Lock className="pp-lock" size={11} />}
+      </span>
+      <span className={isMono(field.key) ? "sp-value sp-mono" : "sp-value"}>
+        {asText(read(profile, field)) || "—"}
+      </span>
+    </li>
+  );
+
+  const renderInput = (field: FieldDef) => {
     const error = fieldErrors[field.key];
 
     if (editing && field.editable) {
@@ -318,19 +335,6 @@ export default function ProfilePage({
       </div>
     );
   };
-
-  const accountRows: [string, string][] = [
-    ["Email", asText(profile.user.email)],
-    ["Username", asText(profile.user.username)],
-    ["Role", roleLabel],
-    ["Account status", asText(profile.user.status).replace(/_/g, " ")],
-    [
-      "Can sign in to",
-      account.interfaces
-        .map((i) => (i === "DMC_PORTAL" ? "SafePlus DMC portal" : "SafePlus mobile app"))
-        .join(", "),
-    ],
-  ];
 
   return (
     <div className="pp-page">
@@ -427,6 +431,7 @@ export default function ProfilePage({
         </span>
       </p>
 
+      <style>{DATA_STYLES}</style>
       <style>{`
         .pp-page, .pp-banner, .pp-loading {
           text-align: left;

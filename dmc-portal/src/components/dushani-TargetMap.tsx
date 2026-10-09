@@ -17,6 +17,14 @@ interface TargetMapProps {
 
 const SRI_LANKA_CENTER = [7.8731, 80.7718] as [number, number];
 
+const Hairline = "#EAECF0";
+const Divider = "#F2F4F7";
+const Surface = "#F9FAFB";
+const RedTint = "#FEF3F2";
+const ShadowCard =
+  "0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06)";
+const FocusRing = "0 0 0 3px rgba(217, 45, 32, 0.16)";
+
 /**
  * The one place a target area is chosen. The outline it draws and the district
  * named in the dropdown come from the same boundary asset, and a click outside
@@ -221,10 +229,15 @@ export default function TargetMap({
       <style>
         {`
           .target-map {
-            border: 1px solid ${Colors.border};
-            border-radius: 12px;
+            border: 1px solid ${Hairline};
+            border-radius: 14px;
             overflow: hidden;
             background: ${Colors.white};
+            box-shadow: ${ShadowCard};
+            color: ${Colors.text};
+            color-scheme: light;
+            text-align: left;
+            font-variant-numeric: tabular-nums;
           }
 
           .target-map-toolbar {
@@ -232,8 +245,9 @@ export default function TargetMap({
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            padding: 10px 14px;
-            border-bottom: 1px solid ${Colors.border};
+            padding: 11px 14px;
+            border-bottom: 1px solid ${Divider};
+            background: ${Surface};
             flex-wrap: wrap;
           }
 
@@ -243,11 +257,13 @@ export default function TargetMap({
             gap: 8px;
             font-size: 12px;
             font-weight: 700;
+            letter-spacing: -0.005em;
             color: ${Colors.text};
           }
 
           .target-map-mode svg {
             color: ${Colors.red};
+            flex-shrink: 0;
           }
 
           .target-map-actions {
@@ -259,43 +275,89 @@ export default function TargetMap({
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 12px;
+            height: 30px;
+            padding: 0 12px;
             border: 1px solid ${Colors.border};
             border-radius: 8px;
             background: ${Colors.white};
             color: ${Colors.text};
+            font-family: inherit;
             font-size: 12px;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
+            white-space: nowrap;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+            transition: border-color 140ms ease, color 140ms ease,
+              background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
           }
 
           .target-map-button:hover:not(:disabled) {
+            border-color: ${Colors.navy};
+            color: ${Colors.navy};
+            box-shadow: ${ShadowCard};
+          }
+
+          .target-map-button:active:not(:disabled) {
+            transform: translateY(1px);
+          }
+
+          .target-map-button:focus-visible {
+            outline: none;
             border-color: ${Colors.red};
-            color: ${Colors.red};
+            box-shadow: ${FocusRing};
           }
 
           .target-map-button:disabled {
             opacity: 0.45;
             cursor: not-allowed;
+            box-shadow: none;
           }
 
           .target-map-canvas {
             height: 360px;
+            background: ${Surface};
           }
 
           .target-map-footer {
             padding: 10px 14px;
-            border-top: 1px solid ${Colors.border};
+            border-top: 1px solid ${Divider};
           }
 
           .target-map-hint {
-            font-size: 12px;
+            display: block;
+            font-size: 11.5px;
+            font-weight: 500;
+            line-height: 1.5;
             color: ${Colors.muted};
           }
 
           .target-map-hint-error {
+            padding: 9px 12px;
+            border: 1px solid #FDA29B;
+            border-radius: 9px;
+            background: ${RedTint};
             color: ${Colors.redDark};
-            font-weight: 600;
+            font-weight: 700;
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .target-map,
+            .target-map * {
+              animation-duration: 0.01ms !important;
+              transition-duration: 0.01ms !important;
+            }
+          }
+
+          @media (max-width: 720px) {
+            .target-map-canvas {
+              height: 280px;
+            }
+
+            .target-map-toolbar {
+              align-items: flex-start;
+              flex-direction: column;
+              gap: 10px;
+            }
           }
         `}
       </style>

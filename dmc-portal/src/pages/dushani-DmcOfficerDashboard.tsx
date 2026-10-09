@@ -5,6 +5,7 @@ import {
   Ban,
   CheckCircle,
   ClipboardList,
+  Clock,
   Home,
   Inbox,
   KeyRound,
@@ -12,24 +13,49 @@ import {
   LogOut,
   Megaphone,
   ShieldCheck,
+  Trash2,
   User,
   Users,
   X,
 } from "lucide-react";
 
-import { Colors } from "../constants/theme";
 import type { AuthUser } from "../types/auth";
-import type { DisasterWarning, DistrictCoverage, WarningStatus } from "../types/warning";
+import type {
+  BroadcastLog,
+  DisasterWarning,
+  DistrictCoverage,
+  WarningStatus,
+} from "../types/warning";
+import { EXPIRY_EXTENSION_HOURS } from "../types/warning";
 import type { HazardReport } from "../types/hazardReport";
 import {
+  deleteWarning,
+  extendWarningExpiry,
   fetchCoverage,
   fetchPendingReports,
   fetchWarnings,
+  pinProblem,
   standDownWarning,
   type CoverageResponse,
 } from "../services/dushani-alertApi";
 import NotificationBell from "../components/dushani-NotificationBell";
+import PinChallengeModal from "../components/dushani-PinChallengeModal";
 import WarningWizard from "../components/dushani-WarningWizard";
+import {
+  DASHBOARD_STYLES,
+  HISTORY_STYLES,
+  OVERVIEW_STYLES,
+} from "../styles/dushani-dashboardStyles";
+import {
+  DATA_STYLES,
+  channelLabel,
+  deliveryLabel,
+  deliveryPill,
+  isDeliveryError,
+  meterTone,
+  severityPill,
+  skippedCopy,
+} from "../styles/dushani-dataStyles";
 import ReportCenter from "./amasha-ReportCenter";
 import ClearancePinCard from "../components/dushani-ClearancePinCard";
 import ProfilePage from "./dildhara-ProfilePage";
@@ -108,7 +134,11 @@ export default function DmcOfficerDashboard({
 
   // Keeps the callback stable so the profile page doesn't reload repeatedly.
   const logoutRef = useRef(onLogout);
-  logoutRef.current = onLogout;
+
+  useEffect(() => {
+    logoutRef.current = onLogout;
+  }, [onLogout]);
+
   const handleSessionExpired = useCallback(() => logoutRef.current(), []);
 
   // Only a DMC officer may broadcast; a district officer verifies reports.
@@ -165,6 +195,7 @@ export default function DmcOfficerDashboard({
         </div>
 
         <nav className="dmc-sidebar-nav">
+          <div className="dmc-sidebar-label">Operations</div>
           {nav.map((item) => (
             <button
               key={item.view}
@@ -443,22 +474,40 @@ function OverviewView({
             ) : (
               <div className="dmc-alert-list">
                 {warnings.slice(0, 5).map((warning) => (
-                  <div
+                  <article
                     key={warning.id}
                     className={`dmc-alert-item dmc-alert-${tone(warning.status)}`}
                   >
                     <div className="dmc-alert-status">{humanize(warning.status)}</div>
                     <div className="dmc-alert-details">
                       <div className="dmc-alert-title">
-                        {humanize(warning.hazardType)} · {humanize(warning.severityLevel)}
+                        {humanize(warning.hazardType)} warning
                       </div>
-                      <div className="dmc-alert-location">
-                        {warning.targetDistrict} District · {warning.audienceCount} accounts ·{" "}
-                        {warning.warningId}
+                      <div className="sp-facts">
+                        <span className="sp-fact">
+                          <span className="sp-label">Severity</span>
+                          <span className={`sp-pill ${severityPill(warning.severityLevel)}`}>
+                            {humanize(warning.severityLevel)}
+                          </span>
+                        </span>
+                        <span className="sp-fact">
+                          <span className="sp-label">District</span>
+                          <span className="sp-value">{warning.targetDistrict}</span>
+                        </span>
+                        <span className="sp-fact">
+                          <span className="sp-label">Audience</span>
+                          <span className="sp-value">
+                            {formatCount(warning.audienceCount)} accounts
+                          </span>
+                        </span>
+                        <span className="sp-fact">
+                          <span className="sp-label">Reference</span>
+                          <span className="sp-value sp-mono">{warning.warningId}</span>
+                        </span>
                       </div>
                     </div>
                     <div className="dmc-alert-time">{relativeTime(warning.updatedAt)}</div>
-                  </div>
+                  </article>
                 ))}
               </div>
             )}
@@ -467,6 +516,7 @@ function OverviewView({
       )}
 
       <style>{OVERVIEW_STYLES}</style>
+      <style>{DATA_STYLES}</style>
     </div>
   );
 }
@@ -509,12 +559,71 @@ function StatCard({
   );
 }
 
+function ChannelNote({ log }: { log: BroadcastLog }) {
+  if (log.status === "SKIPPED") {
+    const copy = skippedCopy(log.channelType);
+
+    return (
+      <span className="sp-facts">
+        <span className="sp-fact">
+          <span className="sp-label">Why</span>
+          <span className="sp-value sp-muted">{copy.reason}</span>
+        </span>
+        <span className="sp-fact">
+          <span className="sp-label">Next step</span>
+          <span className="sp-value sp-muted">{copy.nextStep}</span>
+        </span>
+      </span>
+    );
+  }
+
+  if (!log.errorMessage) {
+    return null;
+  }
+
+  return (
+    <span className={isDeliveryError(log.status) ? "dmc-log-error" : "dmc-log-note"}>
+      {log.errorMessage}
+    </span>
+  );
+}
+
+function deliverySummary(logs: BroadcastLog[]): { label: string; pill: string } {
+  if (logs.length === 0) {
+    return { label: "Not broadcast", pill: "sp-pill-slate" };
+  }
+
+  if (logs.some((log) => log.status === "FAILED")) {
+    return { label: "Delivery failure", pill: "sp-pill-red" };
+  }
+
+  if (logs.every((log) => log.status === "SKIPPED")) {
+    return { label: "App inbox only", pill: "sp-pill-blue" };
+  }
+
+  if (logs.some((log) => log.status === "SKIPPED")) {
+    return { label: "Part notified", pill: "sp-pill-blue" };
+  }
+
+  if (logs.some((log) => log.status === "PARTIAL")) {
+    return { label: "Part delivered", pill: "sp-pill-amber" };
+  }
+
+  return { label: "All channels ran", pill: "sp-pill-green" };
+}
+
 function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
   const [warnings, setWarnings] = useState<DisasterWarning[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [extendHours, setExtendHours] = useState(EXPIRY_EXTENSION_HOURS[1]);
+  const [pending, setPending] = useState<{
+    action: "extend" | "stand-down";
+    warning: DisasterWarning;
+  } | null>(null);
+  const [pendingError, setPendingError] = useState<string | null>(null);
   const [token, setToken] = useState(0);
 
   useEffect(() => {
@@ -531,16 +640,51 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
       });
   }, [token]);
 
-  const standDown = async (warning: DisasterWarning) => {
+  const openPinModal = (
+    warning: DisasterWarning,
+    action: "extend" | "stand-down"
+  ) => {
+    setPending({ action, warning });
+    setPendingError(null);
+  };
+
+  const runPendingAction = async (securityPin: string) => {
+    if (!pending) return;
+
+    const { action, warning } = pending;
+
     setBusyId(warning.id);
-    setError(null);
+    setPendingError(null);
 
     try {
-      const updated = await standDownWarning(warning.id);
+      const updated =
+        action === "extend"
+          ? await extendWarningExpiry(warning.warningId, extendHours, securityPin)
+          : await standDownWarning(warning.warningId, securityPin);
 
       setWarnings((current) =>
         current.map((item) => (item.id === updated.id ? updated : item))
       );
+      setPending(null);
+    } catch (actionError) {
+      setPendingError(pinProblem(actionError));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const deleteWarningHandler = async (warning: DisasterWarning) => {
+    if (!confirm(`Are you sure you want to delete warning ${warning.warningId}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setBusyId(warning.id);
+    setError(null);
+
+    try {
+      await deleteWarning(warning.warningId);
+
+      setWarnings((current) => current.filter((item) => item.id !== warning.id));
     } catch (actionError) {
       setError(messageOf(actionError));
     } finally {
@@ -548,13 +692,34 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
     }
   };
 
+  const activeCount = warnings.filter((warning) => warning.status === "ACTIVE").length;
+  const deliveredCount = warnings.reduce(
+    (total, warning) =>
+      total +
+      (warning.broadcastLogs ?? []).reduce((sum, log) => sum + log.deliveryCount, 0),
+    0
+  );
+
   return (
     <div className="dmc-history">
       <div className="dmc-panel-head">
-        <p className="dmc-muted">
-          {warnings.length} warning{warnings.length === 1 ? "" : "s"} on record. Select a row to
-          see its target, delivery log and message.
-        </p>
+        <div className="sp-stack">
+          <div className="sp-facts">
+            <span className="sp-fact">
+              <span className="sp-label">On record</span>
+              <span className="sp-value">{warnings.length}</span>
+            </span>
+            <span className="sp-fact">
+              <span className="sp-label">Live now</span>
+              <span className="sp-value">{activeCount}</span>
+            </span>
+            <span className="sp-fact">
+              <span className="sp-label">Deliveries</span>
+              <span className="sp-value sp-mono">{formatCount(deliveredCount)}</span>
+            </span>
+          </div>
+          <p className="dmc-muted">Select a warning to open its target, delivery log and message.</p>
+        </div>
         <div className="dmc-header-actions">
           <button
             type="button"
@@ -601,6 +766,11 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
       {!loading &&
         warnings.map((warning) => {
           const open = openId === warning.id;
+          const logs = warning.broadcastLogs ?? [];
+          const summary = deliverySummary(logs);
+          const pushTargets = logs
+            .filter((log) => log.channelType === "push")
+            .reduce((total, log) => total + log.targetCount, 0);
 
           return (
             <article key={warning.id} className="dmc-history-card">
@@ -612,12 +782,34 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
                 <span className="dmc-alert-status">{humanize(warning.status)}</span>
                 <span className="dmc-history-main">
                   <span className="dmc-alert-title">
-                    {humanize(warning.hazardType)} · {humanize(warning.severityLevel)} ·{" "}
-                    {warning.targetDistrict}
+                    {humanize(warning.hazardType)} warning
                   </span>
-                  <span className="dmc-alert-location">
-                    {warning.warningId} · report {warning.report?.reportId ?? "linked"} ·{" "}
-                    {warning.audienceCount} accounts
+                  <span className="sp-badges">
+                    <span className={`sp-pill ${severityPill(warning.severityLevel)}`}>
+                      {humanize(warning.severityLevel)} severity
+                    </span>
+                    <span className="sp-pill sp-pill-blue">
+                      {warning.targetDistrict} District
+                    </span>
+                    <span className={`sp-pill ${summary.pill}`}>{summary.label}</span>
+                  </span>
+                  <span className="sp-facts">
+                    <span className="sp-fact">
+                      <span className="sp-label">Reference</span>
+                      <span className="sp-value sp-mono">{warning.warningId}</span>
+                    </span>
+                    <span className="sp-fact">
+                      <span className="sp-label">Report</span>
+                      <span className="sp-value sp-mono">
+                        {warning.report?.reportId ?? "Linked"}
+                      </span>
+                    </span>
+                    <span className="sp-fact">
+                      <span className="sp-label">Audience</span>
+                      <span className="sp-value">
+                        {formatCount(warning.audienceCount)} accounts
+                      </span>
+                    </span>
                   </span>
                 </span>
                 <span className="dmc-alert-time">{relativeTime(warning.updatedAt)}</span>
@@ -627,62 +819,274 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
                 <div className="dmc-history-detail">
                   <div className="dmc-detail-block">
                     <h4>Target</h4>
-                    <p>
-                      {warning.gisPolygon
-                        ? `${
-                            warning.gisPolygon.source === "CUSTOM"
+                    <dl className="sp-list">
+                      <div className="sp-row">
+                        <dt>Boundary</dt>
+                        <dd>
+                          {warning.gisPolygon
+                            ? warning.gisPolygon.source === "CUSTOM"
                               ? "Drawn polygon"
                               : "District polygon"
-                          } · ${warning.gisPolygon.areaSqKm} km²${
-                            warning.gisPolygon.districtOverlapRatio !== undefined
-                              ? ` · ${(warning.gisPolygon.districtOverlapRatio * 100).toFixed(1)}% inside ${warning.targetDistrict}`
-                              : ""
-                          }`
-                        : `${warning.targetDistrict} District (whole district)`}
-                    </p>
+                            : `Whole ${warning.targetDistrict} district`}
+                        </dd>
+                      </div>
+                      {warning.gisPolygon && (
+                        <div className="sp-row">
+                          <dt>Area</dt>
+                          <dd className="sp-mono">
+                            {warning.gisPolygon.areaSqKm.toFixed(1)} km²
+                          </dd>
+                        </div>
+                      )}
+                      {warning.gisPolygon?.districtOverlapRatio !== undefined && (
+                        <div className="sp-row">
+                          <dt>Inside district</dt>
+                          <dd className="sp-mono">
+                            {(warning.gisPolygon.districtOverlapRatio * 100).toFixed(1)}% of{" "}
+                            {warning.targetDistrict}
+                          </dd>
+                        </div>
+                      )}
+                      <div className="sp-row">
+                        <dt>Accounts targeted</dt>
+                        <dd>{formatCount(warning.audienceCount)}</dd>
+                      </div>
+                      <div className="sp-row">
+                        <dt>SMS recipients</dt>
+                        <dd>{formatCount(warning.smsRecipientCount)}</dd>
+                      </div>
+                    </dl>
                   </div>
 
-                  <div className="dmc-detail-block">
+                  <div className="dmc-detail-block dmc-detail-wide">
                     <h4>Channels and delivery</h4>
 
-                    {(warning.broadcastLogs ?? []).length === 0 ? (
-                      <p className="dmc-muted">
-                        Not broadcast yet - this warning is {humanize(warning.status).toLowerCase()}.
-                      </p>
+                    {logs.length === 0 ? (
+                      <div className="sp-empty">
+                        Nothing broadcast yet - this warning is{" "}
+                        {humanize(warning.status).toLowerCase()}.
+                      </div>
                     ) : (
-                      <ul className="dmc-log-list">
-                        {(warning.broadcastLogs ?? []).map((log) => (
-                          <li key={log.id} className="dmc-log-item">
-                            <strong>{humanize(log.channelType)}</strong> · {humanize(log.status)} ·{" "}
-                            {log.deliveryCount}/{log.targetCount} delivered
-                            {log.errorMessage ? ` · ${log.errorMessage}` : ""}
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="sp-stack">
+                        <div className="sp-table">
+                          <div className="sp-table-head">
+                            <span>Channel</span>
+                            <span>Status</span>
+                            <span>Delivered</span>
+                          </div>
+                          {logs.map((log) => {
+                            const share =
+                              log.targetCount > 0
+                                ? Math.round(
+                                    (log.deliveryCount / log.targetCount) * 100
+                                  )
+                                : 0;
+
+                            return (
+                              <div key={log.id} className="sp-table-row">
+                                <span className="dmc-log-channel">
+                                  {channelLabel(log.channelType)}
+                                  <ChannelNote log={log} />
+                                </span>
+                                <span>
+                                  <span
+                                    className={`sp-pill ${deliveryPill(log.status)}`}
+                                  >
+                                    {deliveryLabel(log.status)}
+                                  </span>
+                                </span>
+                                <span className="sp-meter">
+                                  {log.targetCount === 0 ? (
+                                    <span className="sp-muted">Nothing to send</span>
+                                  ) : (
+                                    <>
+                                      <span className="sp-meter-track">
+                                        <span
+                                          className={`sp-meter-fill ${meterTone(
+                                            log.status
+                                          )}`}
+                                          style={{
+                                            width: `${Math.max(
+                                              share,
+                                              share > 0 ? 3 : 0
+                                            )}%`,
+                                          }}
+                                        />
+                                      </span>
+                                      <span className="sp-meter-value">
+                                        {formatCount(log.deliveryCount)} /{" "}
+                                        {formatCount(log.targetCount)}
+                                      </span>
+                                    </>
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="sp-facts">
+                          <span className="sp-fact">
+                            <span className="sp-label">In the app</span>
+                            <span className="sp-value">
+                              {formatCount(warning.audienceCount)} accounts
+                            </span>
+                          </span>
+                          <span className="sp-fact">
+                            <span className="sp-label">Push devices</span>
+                            <span className="sp-value">
+                              {pushTargets === 0 ? "None" : formatCount(pushTargets)}
+                            </span>
+                          </span>
+                          <span className="sp-fact">
+                            <span className="sp-label">Text numbers</span>
+                            <span className="sp-value">
+                              {formatCount(warning.smsRecipientCount)}
+                            </span>
+                          </span>
+                        </div>
+
+                        <p className="dmc-muted">
+                          Every targeted account sees this warning in the citizen app
+                          inbox, with or without a notification.
+                        </p>
+                      </div>
                     )}
                   </div>
 
-                  <div className="dmc-detail-block">
+                  <div className="dmc-detail-block dmc-detail-wide">
                     <h4>Alert payload</h4>
-                    <p className="dmc-message">{warning.englishMessage}</p>
-                    <p className="dmc-message">{warning.sinhalaMessage}</p>
-                    <p className="dmc-message">{warning.tamilMessage}</p>
+                    <div className="sp-stack">
+                      {warning.englishMessage && (
+                        <div className="dmc-language dmc-language-en">
+                          <span className="sp-label">English</span>
+                          <p className="dmc-message">{warning.englishMessage}</p>
+                        </div>
+                      )}
+                      {warning.sinhalaMessage && (
+                        <div className="dmc-language dmc-language-si">
+                          <span className="sp-label">Sinhala</span>
+                          <p className="dmc-message">{warning.sinhalaMessage}</p>
+                        </div>
+                      )}
+                      {warning.tamilMessage && (
+                        <div className="dmc-language dmc-language-ta">
+                          <span className="sp-label">Tamil</span>
+                          <p className="dmc-message">{warning.tamilMessage}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {warning.status === "ACTIVE" && (
-                    <button
-                      type="button"
-                      className="dmc-action-button dmc-action-button-standdown"
-                      onClick={() => void standDown(warning)}
-                      disabled={busyId === warning.id}
-                    >
-                      {busyId === warning.id ? (
-                        <Loader2 className="dmc-spin" size={14} />
-                      ) : (
-                        <Ban size={14} />
+                  <div className="dmc-detail-block">
+                    <h4>Timing</h4>
+                    <dl className="sp-list">
+                      <div className="sp-row">
+                        <dt>Broadcast</dt>
+                        <dd className="sp-mono">
+                          {warning.broadcastAt
+                            ? new Date(warning.broadcastAt).toLocaleString()
+                            : "Not broadcast yet"}
+                        </dd>
+                      </div>
+                      <div className="sp-row">
+                        <dt>{warning.status === "ACTIVE" ? "Active until" : "Expired"}</dt>
+                        <dd className="sp-mono">
+                          {warning.expiresAt
+                            ? new Date(warning.expiresAt).toLocaleString()
+                            : "No expiry set"}
+                        </dd>
+                      </div>
+                      <div className="sp-row">
+                        <dt>Created</dt>
+                        <dd className="sp-mono">
+                          {new Date(warning.createdAt).toLocaleString()}
+                        </dd>
+                      </div>
+                      <div className="sp-row">
+                        <dt>Last updated</dt>
+                        <dd className="sp-mono">
+                          {new Date(warning.updatedAt).toLocaleString()}
+                        </dd>
+                      </div>
+                      {warning.safetyInstructions && (
+                        <div className="sp-row">
+                          <dt>Instruction</dt>
+                          <dd className="sp-value-regular">
+                            {warning.safetyInstructions}
+                          </dd>
+                        </div>
                       )}
-                      Stand down
-                    </button>
+                    </dl>
+                  </div>
+
+                  {(warning.status === "ACTIVE" ||
+                    warning.status === "EXPIRED" ||
+                    warning.status === "STOOD_DOWN") && (
+                    <div className="dmc-detail-block dmc-detail-actions">
+                      <h4>Actions</h4>
+
+                      {(warning.status === "ACTIVE" || warning.status === "EXPIRED") && (
+                        <div className="dmc-extend-row">
+                          <label htmlFor={`wz-extend-${warning.id}`}>Extend by</label>
+                          <select
+                            id={`wz-extend-${warning.id}`}
+                            value={extendHours}
+                            onChange={(event) =>
+                              setExtendHours(Number(event.target.value))
+                            }
+                          >
+                            {EXPIRY_EXTENSION_HOURS.map((hours) => (
+                              <option key={hours} value={hours}>
+                                {hours === 1 ? "1 hour" : `${hours} hours`}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            className="dmc-action-button"
+                            onClick={() => openPinModal(warning, "extend")}
+                            disabled={busyId === warning.id}
+                          >
+                            <Clock size={14} />
+                            {warning.status === "EXPIRED"
+                              ? "Extend and reactivate"
+                              : "Extend expiry"}
+                          </button>
+                        </div>
+                      )}
+
+                      {(warning.status === "ACTIVE" || warning.status === "EXPIRED") && (
+                        <button
+                          type="button"
+                          className="dmc-action-button dmc-action-button-standdown"
+                          onClick={() => openPinModal(warning, "stand-down")}
+                          disabled={busyId === warning.id}
+                        >
+                          {busyId === warning.id ? (
+                            <Loader2 className="dmc-spin" size={14} />
+                          ) : (
+                            <Ban size={14} />
+                          )}
+                          Stand down
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        className="dmc-action-button dmc-action-button-delete"
+                        onClick={() => void deleteWarningHandler(warning)}
+                        disabled={busyId === warning.id}
+                      >
+                        {busyId === warning.id ? (
+                          <Loader2 className="dmc-spin" size={14} />
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
+                        Delete warning
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -690,9 +1094,39 @@ function HistoryView({ onIssueWarning }: { onIssueWarning: () => void }) {
           );
         })}
 
+      {pending && (
+        <PinChallengeModal
+          title={
+            pending.action === "extend"
+              ? "Authorize extension"
+              : "Authorize stand-down"
+          }
+          description={
+            pending.action === "extend"
+              ? `Enter your 6-digit clearance PIN to add ${hoursLabel(
+                  extendHours
+                )} to warning ${pending.warning.warningId}.`
+              : `Enter your 6-digit clearance PIN to stop warning ${pending.warning.warningId}. Citizens will stop seeing it as an active alert.`
+          }
+          confirmLabel={pending.action === "extend" ? "Extend warning" : "Stand down"}
+          busy={busyId === pending.warning.id}
+          error={pendingError}
+          onCancel={() => {
+            setPending(null);
+            setPendingError(null);
+          }}
+          onConfirm={(pin) => void runPendingAction(pin)}
+        />
+      )}
+
       <style>{HISTORY_STYLES}</style>
+      <style>{DATA_STYLES}</style>
     </div>
   );
+}
+
+function hoursLabel(hours: number): string {
+  return hours === 1 ? "1 hour" : `${hours} hours`;
 }
 
 function tone(status: WarningStatus): string {
@@ -731,700 +1165,3 @@ function relativeTime(iso: string): string {
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
-
-const DASHBOARD_STYLES = `
-  .dmc-dashboard {
-    display: flex;
-    min-height: 100vh;
-    background: ${Colors.background};
-    font-family: Inter, system-ui, -apple-system, sans-serif;
-  }
-
-  .dmc-sidebar {
-    width: 280px;
-    background: ${Colors.navy};
-    color: ${Colors.white};
-    display: flex;
-    flex-direction: column;
-    transition: width 240ms ease;
-    flex-shrink: 0;
-  }
-
-  .dmc-sidebar-closed {
-    width: 72px;
-  }
-
-  .dmc-sidebar-header {
-    padding: 24px 20px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .dmc-sidebar-brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .dmc-sidebar-brand-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: ${Colors.red};
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .dmc-sidebar-brand-name {
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: -0.03em;
-  }
-
-  .dmc-sidebar-brand-name span {
-    color: ${Colors.red};
-  }
-
-  .dmc-sidebar-brand-subtitle {
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: #98a2b3;
-    margin-top: 2px;
-  }
-
-  .dmc-sidebar-toggle {
-    border: none;
-    background: rgba(255, 255, 255, 0.08);
-    color: ${Colors.white};
-    padding: 8px;
-    border-radius: 8px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .dmc-sidebar-toggle:hover {
-    background: rgba(255, 255, 255, 0.12);
-  }
-
-  .dmc-sidebar-nav {
-    flex: 1;
-    padding: 20px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .dmc-nav-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    border: none;
-    background: transparent;
-    color: #98a2b3;
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: 9px;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .dmc-nav-item:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: ${Colors.white};
-  }
-
-  .dmc-nav-item-active {
-    background: ${Colors.red};
-    color: ${Colors.white};
-  }
-
-  .dmc-sidebar-closed .dmc-nav-item span,
-  .dmc-sidebar-closed .dmc-sidebar-brand-name,
-  .dmc-sidebar-closed .dmc-sidebar-brand-subtitle,
-  .dmc-sidebar-closed .dmc-officer-details,
-  .dmc-sidebar-closed .dmc-logout-button span {
-    display: none;
-  }
-
-  .dmc-sidebar-footer {
-    padding: 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .dmc-officer-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .dmc-officer-avatar {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.12);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 15px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-
-  .dmc-officer-name {
-    font-size: 13px;
-    font-weight: 700;
-    color: ${Colors.white};
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .dmc-officer-role {
-    font-size: 10px;
-    color: #98a2b3;
-    margin-top: 2px;
-    text-transform: capitalize;
-  }
-
-  .dmc-logout-button {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 11px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    background: transparent;
-    color: #fda29b;
-    font-size: 12px;
-    font-weight: 700;
-    border-radius: 9px;
-    cursor: pointer;
-  }
-
-  .dmc-logout-button:hover {
-    background: rgba(217, 45, 32, 0.15);
-    border-color: ${Colors.red};
-    color: ${Colors.red};
-  }
-
-  .dmc-main-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-
-  .dmc-content-header {
-    padding: 28px 40px;
-    background: ${Colors.white};
-    border-bottom: 1px solid ${Colors.border};
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .dmc-header-title h1 {
-    font-size: 26px;
-    font-weight: 800;
-    letter-spacing: -0.04em;
-    color: ${Colors.text};
-    margin: 0 0 6px;
-  }
-
-  .dmc-header-title p {
-    font-size: 14px;
-    color: ${Colors.muted};
-    margin: 0;
-  }
-
-  .dmc-header-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .dmc-profile-button {
-    width: 42px;
-    height: 42px;
-    border: 2px solid transparent;
-    border-radius: 50%;
-    background: ${Colors.navy};
-    color: ${Colors.white};
-    font-size: 15px;
-    font-weight: 800;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: border-color 160ms ease, background 160ms ease;
-  }
-
-  .dmc-profile-button:hover,
-  .dmc-profile-button-active {
-    background: ${Colors.red};
-    border-color: ${Colors.redDark};
-  }
-
-  .dmc-content-body {
-    flex: 1;
-    padding: 36px 40px;
-    overflow-y: auto;
-  }
-
-  .dmc-loading,
-  .dmc-error-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 18px 20px;
-    border-radius: 12px;
-    background: ${Colors.white};
-    border: 1px solid ${Colors.border};
-    color: ${Colors.muted};
-    font-size: 13px;
-  }
-
-  .dmc-error-card {
-    border-color: ${Colors.red};
-    background: ${Colors.redLight};
-    color: ${Colors.redDark};
-  }
-
-  .dmc-error-card h3 {
-    margin: 0 0 4px;
-    font-size: 14px;
-  }
-
-  .dmc-error-card p {
-    margin: 0;
-    font-size: 12px;
-  }
-
-  .dmc-spin {
-    animation: dmc-spin 900ms linear infinite;
-  }
-
-  @keyframes dmc-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (max-width: 1024px) {
-    .dmc-sidebar {
-      position: fixed;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      z-index: 100;
-    }
-
-    .dmc-sidebar-closed {
-      left: -280px;
-      width: 280px;
-    }
-
-    .dmc-content-header,
-    .dmc-content-body {
-      padding: 22px;
-    }
-  }
-`;
-
-const OVERVIEW_STYLES = `
-  .dmc-overview {
-    display: flex;
-    flex-direction: column;
-    gap: 22px;
-  }
-
-  .dmc-stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-    gap: 16px;
-  }
-
-  .dmc-stat-card {
-    padding: 22px;
-    border-radius: 14px;
-    background: ${Colors.white};
-    border: 1px solid ${Colors.border};
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .dmc-stat-icon {
-    width: 50px;
-    height: 50px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .dmc-stat-card-active .dmc-stat-icon {
-    background: ${Colors.redLight};
-    color: ${Colors.red};
-  }
-
-  .dmc-stat-card-success .dmc-stat-icon {
-    background: #dcfce7;
-    color: #16a34a;
-  }
-
-  .dmc-stat-card-info .dmc-stat-icon {
-    background: ${Colors.blueLight};
-    color: ${Colors.blue};
-  }
-
-  .dmc-stat-card-warning .dmc-stat-icon {
-    background: ${Colors.amberLight};
-    color: ${Colors.amber};
-  }
-
-  .dmc-stat-value {
-    font-size: 26px;
-    font-weight: 800;
-    color: ${Colors.text};
-    letter-spacing: -0.03em;
-  }
-
-  .dmc-stat-label {
-    font-size: 12px;
-    color: ${Colors.muted};
-    font-weight: 600;
-    margin-top: 2px;
-  }
-
-  .dmc-columns {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 18px;
-  }
-
-  .dmc-panel {
-    background: ${Colors.white};
-    border: 1px solid ${Colors.border};
-    border-radius: 14px;
-    padding: 22px;
-  }
-
-  .dmc-panel h2 {
-    margin: 0 0 16px;
-    font-size: 17px;
-    font-weight: 800;
-    color: ${Colors.text};
-  }
-
-  .dmc-empty {
-    margin: 0;
-    font-size: 13px;
-    color: ${Colors.muted};
-    line-height: 1.6;
-  }
-
-  .dmc-action-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .dmc-action-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    padding: 14px 16px;
-    border: 1px solid ${Colors.border};
-    border-radius: 11px;
-  }
-
-  .dmc-action-row h3 {
-    margin: 0 0 3px;
-    font-size: 13px;
-    font-weight: 800;
-    color: ${Colors.text};
-  }
-
-  .dmc-action-row p {
-    margin: 0;
-    font-size: 12px;
-    color: ${Colors.muted};
-  }
-
-  .dmc-action-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    height: 38px;
-    padding: 0 15px;
-    border: 1px solid ${Colors.border};
-    border-radius: 9px;
-    background: ${Colors.white};
-    color: ${Colors.text};
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .dmc-action-button:hover:not(:disabled) {
-    border-color: ${Colors.navy};
-    color: ${Colors.navy};
-  }
-
-  .dmc-action-button:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .dmc-action-button-primary {
-    background: ${Colors.red};
-    border-color: ${Colors.red};
-    color: ${Colors.white};
-  }
-
-  .dmc-action-button-primary:hover:not(:disabled) {
-    background: ${Colors.redDark};
-    border-color: ${Colors.redDark};
-    color: ${Colors.white};
-  }
-
-  .dmc-action-button-standdown {
-    color: ${Colors.redDark};
-    border-color: ${Colors.red};
-  }
-
-  .dmc-coverage-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .dmc-coverage-row {
-    display: grid;
-    grid-template-columns: 150px 1fr 92px;
-    align-items: center;
-    gap: 10px;
-    font-size: 12px;
-    color: ${Colors.text};
-  }
-
-  .dmc-coverage-bar {
-    height: 8px;
-    border-radius: 6px;
-    background: ${Colors.background};
-    overflow: hidden;
-  }
-
-  .dmc-coverage-fill {
-    display: block;
-    height: 100%;
-    background: ${Colors.blue};
-  }
-
-  .dmc-coverage-count {
-    text-align: right;
-    color: ${Colors.muted};
-    font-weight: 600;
-  }
-
-  .dmc-alert-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .dmc-alert-item {
-    padding: 16px;
-    border-radius: 12px;
-    background: ${Colors.white};
-    border: 1px solid ${Colors.border};
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .dmc-alert-status {
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    white-space: nowrap;
-  }
-
-  .dmc-alert-item.dmc-alert-critical {
-    border-color: ${Colors.red};
-  }
-
-  .dmc-alert-item.dmc-alert-critical .dmc-alert-status,
-  .dmc-history-row.dmc-alert-critical .dmc-alert-status {
-    background: ${Colors.redLight};
-    color: ${Colors.redDark};
-  }
-
-  .dmc-alert-item.dmc-alert-high .dmc-alert-status,
-  .dmc-history-row.dmc-alert-high .dmc-alert-status {
-    background: ${Colors.amberLight};
-    color: ${Colors.amberText};
-  }
-
-  .dmc-alert-item.dmc-alert-medium .dmc-alert-status,
-  .dmc-history-row.dmc-alert-medium .dmc-alert-status {
-    background: #dcfce7;
-    color: #166534;
-  }
-
-  .dmc-alert-details {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .dmc-alert-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: ${Colors.text};
-  }
-
-  .dmc-alert-location {
-    font-size: 12px;
-    color: ${Colors.muted};
-    margin-top: 2px;
-  }
-
-  .dmc-alert-time {
-    font-size: 12px;
-    color: ${Colors.muted};
-    white-space: nowrap;
-  }
-
-  @media (max-width: 720px) {
-    .dmc-coverage-row {
-      grid-template-columns: 110px 1fr 80px;
-    }
-
-    .dmc-alert-item,
-    .dmc-action-row {
-      flex-wrap: wrap;
-    }
-  }
-`;
-
-const HISTORY_STYLES = `
-  .dmc-history {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .dmc-panel-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-
-  .dmc-muted {
-    margin: 0;
-    font-size: 13px;
-    color: ${Colors.muted};
-  }
-
-  .dmc-history-card {
-    background: ${Colors.white};
-    border: 1px solid ${Colors.border};
-    border-radius: 12px;
-    overflow: hidden;
-  }
-
-  .dmc-history-row {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 16px 18px;
-    border: none;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .dmc-history-row:hover {
-    background: ${Colors.background};
-  }
-
-  .dmc-history-main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-
-  .dmc-history-detail {
-    padding: 18px;
-    border-top: 1px solid ${Colors.border};
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .dmc-detail-block h4 {
-    margin: 0 0 6px;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: ${Colors.muted};
-  }
-
-  .dmc-detail-block p {
-    margin: 0;
-    font-size: 13px;
-    color: ${Colors.text};
-    line-height: 1.6;
-  }
-
-  .dmc-message {
-    margin: 0 0 6px !important;
-    color: ${Colors.muted} !important;
-  }
-
-  .dmc-log-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .dmc-log-item {
-    font-size: 12px;
-    color: ${Colors.text};
-  }
-
-  @media (max-width: 720px) {
-    .dmc-history-row {
-      flex-wrap: wrap;
-    }
-  }
-`;

@@ -17,6 +17,7 @@ import {
 
 interface Props {
   token: string;
+  backLabel?: string;
   onProvideResource: () => void;
   onBack: () => void;
   onSessionExpired: () => void;
@@ -24,6 +25,7 @@ interface Props {
 
 export default function MyResourcesScreen({
   token,
+  backLabel = "← Back to Profile",
   onProvideResource,
   onBack,
   onSessionExpired,
@@ -48,9 +50,7 @@ export default function MyResourcesScreen({
 
         setErrorMessage(error.message);
       } else {
-        setErrorMessage(
-          "Could not load your resources."
-        );
+        setErrorMessage("Could not load your resources.");
       }
     } finally {
       setLoading(false);
@@ -63,18 +63,12 @@ export default function MyResourcesScreen({
 
   const markUnavailable = async (resource: Resource) => {
     try {
-      const updated = await updateResource(
-        token,
-        resource.id,
-        {
-          status: "UNAVAILABLE",
-        }
-      );
+      const updated = await updateResource(token, resource.id, {
+        status: "UNAVAILABLE",
+      });
 
       setResources((current) =>
-        current.map((item) =>
-          item.id === updated.id ? updated : item
-        )
+        current.map((item) => (item.id === updated.id ? updated : item))
       );
     } catch (error) {
       if (error instanceof AuthApiError) {
@@ -85,9 +79,7 @@ export default function MyResourcesScreen({
 
         setErrorMessage(error.message);
       } else {
-        setErrorMessage(
-          "Could not update the resource."
-        );
+        setErrorMessage("Could not update the resource.");
       }
     }
   };
@@ -95,34 +87,31 @@ export default function MyResourcesScreen({
   if (loading) {
     return (
       <View className="items-center py-10">
-        <ActivityIndicator
-          size="large"
-          color="#1B7F4B"
-        />
+        <ActivityIndicator size="large" color="#1B7F4B" />
       </View>
     );
   }
 
   return (
     <View>
-     <View className="mb-5">
-  <Pressable
-    onPress={onBack}
-    className="self-start px-4 py-2 mb-4 bg-white border rounded-xl border-safeplus-border"
-  >
-    <Text className="text-sm font-extrabold text-safeplus-darkGreen">
-      ← Back to Profile
-    </Text>
-  </Pressable>
+      <View className="mb-5">
+        <Pressable
+          onPress={onBack}
+          className="self-start px-4 py-2 mb-4 bg-white border rounded-xl border-safeplus-border"
+        >
+          <Text className="text-sm font-extrabold text-safeplus-darkGreen">
+            {backLabel}
+          </Text>
+        </Pressable>
 
-  <Text className="text-2xl font-extrabold text-safeplus-darkGreen">
-    My Resources
-  </Text>
+        <Text className="text-2xl font-extrabold text-safeplus-darkGreen">
+          My Resources
+        </Text>
 
-  <Text className="mt-1 text-sm text-safeplus-muted">
-    Resources you have offered for relief operations.
-  </Text>
-</View>
+        <Text className="mt-1 text-sm text-safeplus-muted">
+          Resources you have offered for relief operations.
+        </Text>
+      </View>
 
       <Pressable
         onPress={onProvideResource}
@@ -146,8 +135,8 @@ export default function MyResourcesScreen({
           </Text>
 
           <Text className="mt-2 text-sm leading-5 text-safeplus-muted">
-            Add a resource so the relief coordination team
-            can know what you are able to provide.
+            Add a resource so the relief coordination team can know what you
+            are able to provide.
           </Text>
         </View>
       ) : (
@@ -180,10 +169,7 @@ export default function MyResourcesScreen({
                 value={`${resource.quantity} ${resource.unit}`}
               />
 
-              <ResourceField
-                label="District"
-                value={resource.district}
-              />
+              <ResourceField label="District" value={resource.district} />
 
               <ResourceField
                 label="Location"
@@ -228,9 +214,7 @@ function ResourceField({
         {label}
       </Text>
 
-      <Text className="mt-1 text-sm text-safeplus-text">
-        {value}
-      </Text>
+      <Text className="mt-1 text-sm text-safeplus-text">{value}</Text>
     </View>
   );
 }

@@ -213,3 +213,99 @@ export async function setTeamAvailability(
     [userId, availability]
   );
 }
+
+export interface OfficerAssignmentRow {
+  full_name: string;
+  district: string | null;
+  officer_id: string | null;
+  clearance_level: string | null;
+}
+
+/**
+ * The board has to know which district the signed-in officer owns, and that is
+ * read from the database rather than trusted from the request.
+ */
+export async function findOfficerAssignment(
+  userId: string
+): Promise<OfficerAssignmentRow | null> {
+  const result = await pool.query<OfficerAssignmentRow>(
+    `SELECT u.full_name,
+            COALESCE(o.assigned_district, u.district) AS district,
+            o.officer_id,
+            o.clearance_level
+       FROM users u
+       LEFT JOIN district_officers o ON o.user_id = u.id
+      WHERE u.id = $1
+      LIMIT 1`,
+    [userId]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export interface DeployableTeamRow {
+  user_id: string;
+  team_name: string;
+  team_type: string;
+  affiliation: string;
+  verified_by: string;
+  organization_name: string | null;
+  organization_registration_number: string | null;
+  leader_designation: string | null;
+  leader_full_name: string;
+  leader_email: string;
+  leader_phone_number: string;
+  team_contact_number: string | null;
+  operating_district: string;
+  member_count: number;
+  capabilities: string[] | null;
+  equipment: string[] | null;
+  base_latitude: number | null;
+  base_longitude: number | null;
+  base_location_label: string | null;
+  availability: string;
+  reviewed_at: Date | null;
+}
+
+/**
+ * Teams a district officer may task: only accounts whose leader is ACTIVE
+ * (= the team was approved), only rows built through the rescue team form (so a
+ * team type and district exist), and optionally only the officer's own district.
+ */
+export async function listDeployableTeams(
+  district: string | null
+): Promise<DeployableTeamRow[]> {
+  const result = await pool.query<DeployableTeamRow>(
+    `SELECT t.user_id,
+            t.team_name,
+            t.team_type,
+            t.affiliation,
+            t.verified_by,
+            t.organization_name,
+            t.organization_registration_number,
+            t.leader_designation,
+            u.full_name AS leader_full_name,
+            u.email AS leader_email,
+            t.leader_phone_number,
+            t.team_contact_number,
+            t.operating_district,
+            t.member_count,
+            t.capabilities,
+            t.equipment,
+            t.base_latitude,
+            t.base_longitude,
+            t.base_location_label,
+            t.availability,
+            t.reviewed_at
+       FROM team_leaders t
+       JOIN users u ON u.id = t.user_id
+      WHERE u.status = 'ACTIVE'
+        AND t.team_type IS NOT NULL
+        AND t.operating_district IS NOT NULL
+        AND ($1::text IS NULL OR t.operating_district = $1)
+      ORDER BY t.team_type ASC, t.organization_name ASC NULLS LAST, t.team_name ASC`,
+    [district]
+  );
+
+  return result.rows;
+}

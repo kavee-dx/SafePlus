@@ -11,6 +11,9 @@ import {
   resendTeamForReview,
   setTeamAvailability,
   updateRescueTeam,
+  findOfficerAssignment,
+  listDeployableTeams,
+  type DeployableTeamRow,
   type RescueTeamRow,
 } from "../repositories/kaveesha-rescueTeamRepository";
 import {
@@ -333,4 +336,260 @@ export async function updateTeamAvailability(
   await setTeamAvailability(userId, wanted);
 
   return getTeamLeaderDashboard(userId);
+}
+
+/* ------------------------------------------------------------------ *
+ * District rescue board - what a District Officer uses to find teams
+ * ------------------------------------------------------------------ */
+
+export interface DistrictTeamCard {
+  userId: string;
+  teamName: string;
+  teamType: string;
+  district: string;
+  outsideDistrict: boolean;
+  availability: string;
+  members: number;
+  contactNumber: string;
+  capabilities: string[];
+  equipment: string[];
+  leader: {
+    fullName: string;
+    designation: string | null;
+    email: string;
+    phone: string;
+  };
+  base: {
+    latitude: number | null;
+    longitude: number | null;
+    label: string | null;
+  };
+  organization: {
+    name: string;
+    registrationId: string;
+  } | null;
+  affiliation: string;
+  verifiedBy: string;
+  reviewedAt: string | null;
+}
+
+export interface DistrictDisasterGroup {
+  type: string;
+  teams: number;
+  available: number;
+  members: number;
+}
+
+export interface DistrictOrganizationGroup {
+  key: string;
+  name: string;
+  registrationId: string | null;
+  kind: "ORGANIZATION" | "INDEPENDENT";
+  districts: string[];
+  teams: number;
+  available: number;
+  members: number;
+  disasters: DistrictDisasterGroup[];
+  teamCards: DistrictTeamCard[];
+}
+
+export interface DistrictRescueBoard {
+  officer: {
+    fullName: string;
+    district: string | null;
+    clearanceLevel: string | null;
+    scope: "district" | "mutual-aid";
+  };
+  summary: {
+    teams: number;
+    available: number;
+    onDeployment: number;
+    standingDown: number;
+    members: number;
+    organizations: number;
+    disasters: number;
+    districts: number;
+  };
+  disasters: DistrictDisasterGroup[];
+  organizations: DistrictOrganizationGroup[];
+  teams: DistrictTeamCard[];
+}
+
+const AVAILABILITY_RANK: Record<string, number> = {
+  AVAILABLE: 0,
+  ON_DEPLOYMENT: 1,
+  UNAVAILABLE: 2,
+};
+
+function availabilityRank(value: string): number {
+  return AVAILABILITY_RANK[value] ?? 3;
+}
+
+function toTeamCard(
+  row: DeployableTeamRow,
+  homeDistrict: string | null
+): DistrictTeamCard {
+  const isOrganization = row.affiliation === "ORGANIZATION";
+
+  return {
+    userId: row.user_id,
+    teamName: row.team_name,
+    teamType: row.team_type,
+    district: row.operating_district,
+    outsideDistrict: Boolean(
+      homeDistrict && row.operating_district !== homeDistrict
+    ),
+    availability: row.availability ?? "UNAVAILABLE",
+    members: row.member_count,
+    contactNumber: row.team_contact_number ?? row.leader_phone_number,
+    capabilities: row.capabilities ?? [],
+    equipment: row.equipment ?? [],
+    leader: {
+      fullName: row.leader_full_name,
+      designation: row.leader_designation,
+      email: row.leader_email,
+      phone: row.leader_phone_number,
+    },
+    base: {
+      latitude: row.base_latitude,
+      longitude: row.base_longitude,
+      label: row.base_location_label,
+    },
+    organization:
+      isOrganization && row.organization_name
+        ? {
+            name: row.organization_name,
+            registrationId: row.organization_registration_number ?? "—",
+          }
+        : null,
+    affiliation: row.affiliation,
+    verifiedBy: row.verified_by,
+    reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toISOString() : null,
+  };
+}
+
+function summarizeDisasters(
+  cards: DistrictTeamCard[]
+): DistrictDisasterGroup[] {
+  return RESCUE_TEAM_TYPES.map((type) => {
+    const matched = cards.filter((card) => card.teamType === type);
+
+    return {
+      type,
+      teams: matched.length,
+      available: matched.filter((card) => card.availability === "AVAILABLE")
+        .length,
+      members: matched.reduce((total, card) => total + card.members, 0),
+    };
+  }).filter((group) => group.teams > 0);
+}
+
+/**
+ * The board a District Officer tasking teams needs: every approved team, split
+ * by disaster type and by the organization it belongs to. By default the
+ * officer only sees their own district; the mutual-aid scope adds verified teams
+ * from other districts, flagged so nobody mistakes them for local capacity.
+ */
+export async function getDistrictRescueBoard(
+  userId: string,
+  scope: string
+): Promise<DistrictRescueBoard> {
+  const assignment = await findOfficerAssignment(userId);
+
+  if (!assignment) {
+    throw new ApiError(
+      404,
+      "No district officer profile is linked to this account."
+    );
+  }
+
+  const homeDistrict = assignment.district?.trim() || null;
+
+  // An officer with no assigned district (a DMC duty officer, say) has no local
+  // board to fall back on, so that account always reads every district.
+  const mutualAid = String(scope ?? "").trim().toLowerCase() === "all" || !homeDistrict;
+
+  const rows = await listDeployableTeams(mutualAid ? null : homeDistrict);
+
+  const teams = rows
+    .map((row) => toTeamCard(row, homeDistrict))
+    .sort(
+      (a, b) =>
+        availabilityRank(a.availability) - availabilityRank(b.availability) ||
+        a.district.localeCompare(b.district) ||
+        a.teamName.localeCompare(b.teamName)
+    );
+
+  const groups = new Map<string, DistrictOrganizationGroup>();
+
+  for (const card of teams) {
+    const key = card.organization
+      ? `ORG:${card.organization.registrationId}`
+      : `IND:${card.district}`;
+
+    let group = groups.get(key);
+
+    if (!group) {
+      group = {
+        key,
+        name: card.organization
+          ? card.organization.name
+          : `Independent / community teams · ${card.district}`,
+        registrationId: card.organization?.registrationId ?? null,
+        kind: card.organization ? "ORGANIZATION" : "INDEPENDENT",
+        districts: [],
+        teams: 0,
+        available: 0,
+        members: 0,
+        disasters: [],
+        teamCards: [],
+      };
+      groups.set(key, group);
+    }
+
+    if (!group.districts.includes(card.district)) {
+      group.districts.push(card.district);
+    }
+
+    group.teams += 1;
+    group.members += card.members;
+
+    if (card.availability === "AVAILABLE") group.available += 1;
+
+    group.teamCards.push(card);
+  }
+
+  const organizations = [...groups.values()]
+    .map((group) => ({ ...group, disasters: summarizeDisasters(group.teamCards) }))
+    .sort(
+      (a, b) =>
+        b.available - a.available ||
+        b.teams - a.teams ||
+        a.name.localeCompare(b.name)
+    );
+
+  return {
+    officer: {
+      fullName: assignment.full_name,
+      district: homeDistrict,
+      clearanceLevel: assignment.clearance_level,
+      scope: mutualAid ? "mutual-aid" : "district",
+    },
+    summary: {
+      teams: teams.length,
+      available: teams.filter((card) => card.availability === "AVAILABLE").length,
+      onDeployment: teams.filter((card) => card.availability === "ON_DEPLOYMENT")
+        .length,
+      standingDown: teams.filter((card) => card.availability !== "AVAILABLE" && card.availability !== "ON_DEPLOYMENT")
+        .length,
+      members: teams.reduce((total, card) => total + card.members, 0),
+      organizations: organizations.filter((group) => group.kind === "ORGANIZATION")
+        .length,
+      disasters: summarizeDisasters(teams).length,
+      districts: new Set(teams.map((card) => card.district)).size,
+    },
+    disasters: summarizeDisasters(teams),
+    organizations,
+    teams,
+  };
 }

@@ -56,7 +56,8 @@ export async function listAlertSms(
     `SELECT m.id, w.warning_id, m.sender_id, m.level_label, m.area_label,
             m.instruction, m.body, m.delivered_at, m.read_at,
             w.status AS warning_status, w.hazard_type, w.severity_level,
-            w.target_district, w.expires_at
+            w.target_district, w.expires_at,
+            w.english_message, w.sinhala_message, w.tamil_message
        FROM alert_sms_messages m
        JOIN disaster_warnings w ON w.id = m.warning_id
       WHERE m.recipient_id = $1
@@ -73,6 +74,9 @@ export async function listAlertSms(
     areaLabel: row.area_label as string,
     instruction: row.instruction as string,
     body: row.body as string,
+    englishMessage: (row.english_message as string | null) ?? "",
+    sinhalaMessage: (row.sinhala_message as string | null) ?? "",
+    tamilMessage: (row.tamil_message as string | null) ?? "",
     deliveredAt: row.delivered_at as Date,
     readAt: (row.read_at as Date | null) ?? undefined,
     warningStatus: row.warning_status as string,
