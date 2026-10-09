@@ -21,6 +21,7 @@ interface Props {
   account: PortalAccount;
   token: string;
   onOpenRequests: () => void;
+  onOpenDispatch: (focus: "planning" | "assignment") => void;
   onSessionExpired?: () => void;
 }
 
@@ -39,6 +40,7 @@ export default function CoordinatorDashboardPage({
   account,
   token,
   onOpenRequests,
+  onOpenDispatch,
   onSessionExpired,
 }: Props) {
   const [requests, setRequests] = useState<ResourceRequest[]>([]);
@@ -333,25 +335,35 @@ export default function CoordinatorDashboardPage({
             <ArrowRight size={17} />
           </button>
 
-          <div className="cr-quick-action cr-quick-disabled">
+          <button
+            type="button"
+            className="cr-quick-action"
+            onClick={() => onOpenDispatch("assignment")}
+          >
             <span className="cr-quick-icon cr-icon-blue">
               <Users size={20} />
             </span>
             <span>
               <strong>Assign volunteers</strong>
-              <small>Operations module · Coming soon</small>
+              <small>Assign registered volunteers or teams to an eligible dispatch.</small>
             </span>
-          </div>
+            <ArrowRight size={17} />
+          </button>
 
-          <div className="cr-quick-action cr-quick-disabled">
+          <button
+            type="button"
+            className="cr-quick-action"
+            onClick={() => onOpenDispatch("planning")}
+          >
             <span className="cr-quick-icon cr-icon-green">
               <Truck size={20} />
             </span>
             <span>
-              <strong>Plan delivery routes</strong>
-              <small>Delivery module · Coming soon</small>
+              <strong>Dispatch and Track Deliveries</strong>
+              <small>Plan dispatches and record manual delivery checkpoints.</small>
             </span>
-          </div>
+            <ArrowRight size={17} />
+          </button>
 
           <div className="cr-note">
             <ShieldCheck size={18} />

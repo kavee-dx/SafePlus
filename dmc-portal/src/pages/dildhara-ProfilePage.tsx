@@ -144,9 +144,6 @@ const initials = (name: string): string =>
 
 // Darker green for text on a light success tint (Colors.success is too light for text).
 const SUCCESS_TEXT = "#067647";
-// Identifiers and phone numbers read as fixed-width codes; everything else stays proportional.
-const isMono = (key: string): boolean =>
-  key === "officerId" || key === "registrationNumber" || key === "phoneNumber";
 
 interface ProfilePageProps {
   token: string;
@@ -275,20 +272,15 @@ export default function ProfilePage({
   const statusText = asText(profile.user.status).replace(/_/g, " ");
   const active = profile.user.status === "ACTIVE";
   const statusClass = active ? "sp-pill sp-pill-green" : "sp-pill sp-pill-red";
+  const accountRows: [string, string][] = [
+    ["Account ID", asText(profile.user.id ?? account.id)],
+    ["Email", asText(profile.user.email ?? account.email)],
+    ["Username", asText(profile.user.username ?? account.username)],
+    ["Role", roleLabel],
+    ["Account status", statusText],
+  ];
 
-  const renderRow = (field: FieldDef) => (
-    <li className="sp-row" key={field.key}>
-      <span className="sp-label">
-        {field.label}
-        {editing && <Lock className="pp-lock" size={11} />}
-      </span>
-      <span className={isMono(field.key) ? "sp-value sp-mono" : "sp-value"}>
-        {asText(read(profile, field)) || "—"}
-      </span>
-    </li>
-  );
-
-  const renderInput = (field: FieldDef) => {
+  const renderField = (field: FieldDef) => {
     const error = fieldErrors[field.key];
 
     if (editing && field.editable) {
@@ -399,7 +391,7 @@ export default function ProfilePage({
               <span className="pp-label">{label}</span>
               {label === "Account status" && value ? (
                 <div className="pp-value">
-                  <span className={active ? "pp-pill ok" : "pp-pill"}>
+                  <span className={statusClass}>
                     {active ? "Active" : value}
                   </span>
                 </div>

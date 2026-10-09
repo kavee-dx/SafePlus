@@ -18,11 +18,13 @@ import DmcOfficerDashboard from "./pages/dushani-DmcOfficerDashboard";
 import KaveeshaDistrictOfficerDashboard from "./pages/kaveesha-DistrictOfficerDashboard";
 import CoordinatorDashboardPage from "./pages/dildhara-CoordinatorDashboardPage";
 import ResourceRequestsPage from "./pages/dildhara-ResourceRequestsPage";
+import ResourceInventoryPage from "./pages/dildhara-ResourceInventoryPage";
 import PortalLayout, {
   type PortalPage,
 } from "./pages/dildhara-PortalLayout";
 import DashboardPage from "./pages/dildhara-DashboardPage";
 import ProfilePage from "./pages/dildhara-ProfilePage";
+import ReliefOperationsPage from "./pages/dildhara-ReliefOperationsPage";
 
 import { getStoredAdmin, getStoredToken } from "./services/amasha-adminApi";
 import {
@@ -148,6 +150,8 @@ export default function App() {
 
   const [portalPage, setPortalPage] =
     useState<PortalPage>("dashboard");
+  const [reliefOperationsFocus, setReliefOperationsFocus] =
+    useState<"planning" | "assignment" | undefined>();
 
   const handleSplashFinish = () => {
     setCurrentScreen("login");
@@ -198,6 +202,7 @@ export default function App() {
     });
 
     setPortalPage("dashboard");
+    setReliefOperationsFocus(undefined);
     setCurrentScreen("portal");
   };
 
@@ -216,6 +221,7 @@ export default function App() {
 
   const handlePortalSignOut = useCallback(() => {
     setPortalSession(null);
+    setReliefOperationsFocus(undefined);
     setCurrentScreen("login");
   }, []);
 
@@ -498,39 +504,55 @@ export default function App() {
 
     return (
       <PortalLayout
-        account={portalSession.account}
-        activePage={portalPage}
-        onNavigate={setPortalPage}
-        onSignOut={handlePortalSignOut}
-      >
-        {portalPage === "resource-requests" ? (
-          <ResourceRequestsPage
-            token={portalSession.token}
-            onBack={() => setPortalPage("dashboard")}
-            onSessionExpired={handlePortalSignOut}
-          />
-        ) : portalPage === "dashboard" &&
-          portalSession.account.role === "COORDINATOR" ? (
-          <CoordinatorDashboardPage
-            account={portalSession.account}
-            token={portalSession.token}
-            onOpenRequests={() => setPortalPage("resource-requests")}
-          />
-        ) : portalPage === "dashboard" ? (
-          <DashboardPage
-            account={portalSession.account}
-          />
-        ) : (
-          <ProfilePage
-            token={portalSession.token}
-            account={portalSession.account}
-            onProfileSaved={handleProfileSaved}
-            onSessionExpired={
-              handlePortalSignOut
-            }
-          />
-        )}
-      </PortalLayout>
+  account={portalSession.account}
+  activePage={portalPage}
+  onNavigate={(page) => {
+    setReliefOperationsFocus(undefined);
+    setPortalPage(page);
+  }}
+  onSignOut={handlePortalSignOut}
+>
+  {portalPage === "resource-requests" ? (
+    <ResourceRequestsPage
+      token={portalSession.token}
+      onBack={() => setPortalPage("dashboard")}
+      onSessionExpired={handlePortalSignOut}
+    />
+  ) : portalPage === "resource-inventory" &&
+    portalSession.account.role === "COORDINATOR" ? (
+    <ResourceInventoryPage
+      token={portalSession.token}
+      onSessionExpired={handlePortalSignOut}
+    />
+  ) : portalPage === "relief-operations" &&
+    portalSession.account.role === "COORDINATOR" ? (
+    <ReliefOperationsPage
+      token={portalSession.token}
+      onSessionExpired={handlePortalSignOut}
+      dispatchFocus={reliefOperationsFocus}
+    />
+  ) : portalPage === "dashboard" &&
+    portalSession.account.role === "COORDINATOR" ? (
+    <CoordinatorDashboardPage
+      account={portalSession.account}
+      token={portalSession.token}
+      onOpenRequests={() => setPortalPage("resource-requests")}
+      onOpenDispatch={(focus) => {
+        setReliefOperationsFocus(focus);
+        setPortalPage("relief-operations");
+      }}
+    />
+  ) : portalPage === "dashboard" ? (
+    <DashboardPage account={portalSession.account} />
+  ) : (
+    <ProfilePage
+      token={portalSession.token}
+      account={portalSession.account}
+      onProfileSaved={handleProfileSaved}
+      onSessionExpired={handlePortalSignOut}
+    />
+  )}
+</PortalLayout>
     );
   }
 

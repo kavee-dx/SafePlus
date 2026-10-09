@@ -18,6 +18,86 @@ export interface ResourceRow {
   updated_at: string;
 }
 
+export type ResourceInventoryRow = ResourceRow & {
+  provider_name: string;
+  provider_role: string;
+  contributor_type: "INDIVIDUAL" | "ORGANIZATION";
+  availability_condition:
+    | "AVAILABLE"
+    | "UNAVAILABLE"
+    | "EXPIRED"
+    | "CANCELLED"
+    | "NOT_YET_AVAILABLE"
+    | "AVAILABILITY_ENDED";
+  expiry_condition:
+    | "NO_EXPIRY"
+    | "EXPIRED"
+    | "EXPIRING_SOON"
+    | "NEAR_EXPIRY"
+    | "VALID";
+};
+
+export async function findAllResourcesForInventory():
+  Promise<ResourceInventoryRow[]> {
+  const result = await pool.query<ResourceInventoryRow>(
+    `
+      SELECT
+        r.*,
+        u.full_name AS provider_name,
+        u.role AS provider_role,
+
+        CASE
+          WHEN u.role = 'RELIEF_AGENCY'
+            THEN 'ORGANIZATION'
+          ELSE 'INDIVIDUAL'
+        END AS contributor_type,
+
+        CASE
+          WHEN r.status = 'CANCELLED' THEN 'CANCELLED'
+          WHEN r.status = 'EXPIRED' THEN 'EXPIRED'
+          WHEN r.status <> 'AVAILABLE' THEN 'UNAVAILABLE'
+          WHEN r.expiry_date IS NOT NULL
+            AND r.expiry_date < NOW() THEN 'EXPIRED'
+          WHEN r.available_from IS NOT NULL
+            AND r.available_from > NOW() THEN 'NOT_YET_AVAILABLE'
+          WHEN r.available_until IS NOT NULL
+            AND r.available_until < NOW() THEN 'AVAILABILITY_ENDED'
+          ELSE 'AVAILABLE'
+        END AS availability_condition,
+
+        CASE
+          WHEN r.expiry_date IS NULL THEN 'NO_EXPIRY'
+          WHEN r.expiry_date < NOW() THEN 'EXPIRED'
+          WHEN r.expiry_date <= NOW() + INTERVAL '3 days'
+            THEN 'EXPIRING_SOON'
+          WHEN r.expiry_date <= NOW() + INTERVAL '7 days'
+            THEN 'NEAR_EXPIRY'
+          ELSE 'VALID'
+        END AS expiry_condition
+
+      FROM relief_resources r
+      INNER JOIN users u
+        ON u.id = r.provider_user_id
+
+      WHERE u.role IN ('RELIEF_AGENCY', 'FOOD_DONOR')
+
+      ORDER BY
+        CASE
+          WHEN r.status = 'AVAILABLE'
+            AND (r.expiry_date IS NULL OR r.expiry_date >= NOW())
+            AND (r.available_from IS NULL OR r.available_from <= NOW())
+            AND (r.available_until IS NULL OR r.available_until >= NOW())
+            THEN 0
+          ELSE 1
+        END,
+        r.expiry_date ASC NULLS LAST,
+        r.created_at DESC
+    `
+  );
+
+  return result.rows;
+}
+
 export interface CreateResourceData {
   id: string;
   providerUserId: string;

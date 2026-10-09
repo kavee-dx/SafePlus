@@ -8,6 +8,7 @@ import {
   getResource,
   listMyResources,
   updateResource,
+  listResourceInventory,
 } from "../controllers/dildhara-resourceController";
 
 const router = Router();
@@ -17,6 +18,8 @@ router.use(requireAuth);
 router.post("/", createResource);
 
 router.get("/my", listMyResources);
+
+router.get("/inventory", listResourceInventory);
 
 router.get("/:id", getResource);
 

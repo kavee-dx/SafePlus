@@ -24,6 +24,8 @@ async function migrate() {
       "delivery_volunteers.sql",
       "delivery_volunteer_teams.sql",
       "relief_agencies.sql",
+      "dildhara-relief_resources.sql",
+      "dildhara-resource_requests.sql",
       "organization_admins.sql",
       "kaveesha-rescue_organizations.sql",
       "team_leaders.sql",
@@ -40,9 +42,11 @@ async function migrate() {
       "amasha-hazard_report_uc02.sql",
       "warning_expiry.sql",
       "warning_audit_delete_action.sql",
-      "broadcast_status_skipped.sql"
+      "broadcast_status_skipped.sql",
       "kaveesha-rescue_dispatch.sql",
-      "kaveesha-district_incident_acceptance.sql"
+      "kaveesha-district_incident_acceptance.sql",
+      "dildhara-relief_operations.sql",
+      "dildhara-relief_dispatch_tracking.sql"
     ];
 
     for (const file of migrationFiles) {
