@@ -47,7 +47,8 @@
           "cameraPermission": "SafePlus uses the camera so you can attach photo or video evidence."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
     ]
   }
 }

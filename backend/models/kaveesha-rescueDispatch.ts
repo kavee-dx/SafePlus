@@ -162,6 +162,17 @@ export interface IncidentSummary {
   acceptedAt?: Date;
   acceptedByName?: string;
   handoverNote?: string;
+  /**
+   * The district finished with it: every team is back and the numbers are in.
+   * Only the district that accepted the incident can set this, and the DMC's
+   * verification row is untouched by it.
+   */
+  resolvedAt?: Date;
+  resolvedByName?: string;
+  resolutionNote?: string;
+  /** People reported rescued / evacuated across the missions that completed. */
+  totalRescued: number;
+  totalEvacuated: number;
 }
 
 export interface IncidentDetail extends IncidentSummary {

@@ -28,13 +28,21 @@ import {
   listEvidence,
   listVerifiedIncidents,
   recordAcceptance,
+  recordClosure,
   recordOutcome,
   releaseTeamIfIdle,
+  clearClosure,
 } from "../repositories/kaveesha-dispatchRepository";
 import {
   type Recommendation,
   recommendTeams,
 } from "./kaveesha-teamRecommendationService";
+import {
+  notifyLeaderOfStandDown,
+  notifyLeaderOfTasking,
+} from "./kaveesha-leaderPushService";
+import { publishDispatchEvent } from "./kaveesha-dispatchEvents";
+import type { PushOutcome } from "./kaveesha-leaderPushService";
 import { findOfficerAssignment } from "../repositories/kaveesha-rescueTeamRepository";
 import { ApiError } from "../utils/apiError";
 
@@ -149,7 +157,138 @@ export async function acceptIncident(
     throw new ApiError(500, "The acceptance was saved but could not be read back.");
   }
 
+  publishDispatchEvent({
+    kind: "incident",
+    district: accepted.locationDistrict,
+    reportId: accepted.reportId,
+    message: `${accepted.reportId} taken on by ${accepted.locationDistrict}${
+      accepted.acceptedByName ? ` (${accepted.acceptedByName})` : ""
+    }.`,
+  });
+
   return accepted;
+}
+
+/**
+ * The district closes an incident it has finished with.
+ *
+ * A team still on the road makes this impossible, because "closed" would then
+ * contradict a live mission — and the officer standing the team down is the same
+ * person who has to close the incident, so the two always agree. An incident with
+ * no mission ever tasked can still be closed, but only with a reason written
+ * down: nothing went, and the desk has to say why later.
+ */
+export async function closeIncident(
+  context: OfficerContext,
+  identifier: string,
+  resolutionNote?: string
+): Promise<IncidentSummary> {
+  const incident = await findIncident(identifier);
+
+  if (!incident) {
+    throw new ApiError(404, "Only a verified incident can be closed.");
+  }
+
+  assertIncidentInScope(context, incident.locationDistrict);
+
+  if (incident.resolvedAt) {
+    throw new ApiError(
+      409,
+      `${incident.reportId} was already closed at ${incident.resolvedAt.toISOString()}${
+        incident.resolvedByName ? ` by ${incident.resolvedByName}` : ""
+      }.`
+    );
+  }
+
+  if (!incident.acceptedAt) {
+    throw new ApiError(
+      409,
+      `${incident.reportId} has not been taken on by ${incident.locationDistrict} yet. Accept it first, or leave it for the DMC desk to route.`
+    );
+  }
+
+  if (incident.liveDispatchCount > 0) {
+    throw new ApiError(
+      409,
+      `${incident.liveDispatchCount} mission${
+        incident.liveDispatchCount === 1 ? " is" : "s are"
+      } still running on ${incident.reportId}. Stand every team down before the incident is closed.`
+    );
+  }
+
+  const note = trim(resolutionNote);
+
+  if (incident.dispatchCount === 0 && !note) {
+    throw new ApiError(
+      400,
+      "No team was ever sent to this incident. Write the closing note that explains why it is being shut.",
+      { note: "Required when no team was tasked." }
+    );
+  }
+
+  const closed = await recordClosure(incident.id, context.userId, note);
+
+  if (!closed) {
+    throw new ApiError(409, `${incident.reportId} was closed by another officer just now.`);
+  }
+
+  const finished = await findIncident(incident.id);
+
+  if (!finished) {
+    throw new ApiError(500, "The closure was saved but could not be read back.");
+  }
+
+  announceIncident(
+    finished,
+    "CLOSED",
+    `${finished.reportId} closed for ${finished.locationDistrict}: ${
+      finished.totalRescued
+    } rescued, ${finished.totalEvacuated} evacuated.`
+  );
+
+  return finished;
+}
+
+/**
+ * Undo a closure. A mis-click on a finished incident is the one irreversible-looking
+ * action on the desk, so it needs a way back — the note is discarded with it,
+ * because a closed incident's reasoning has no place on an open one.
+ */
+export async function reopenIncident(
+  context: OfficerContext,
+  identifier: string
+): Promise<IncidentSummary> {
+  const incident = await findIncident(identifier);
+
+  if (!incident) {
+    throw new ApiError(404, "Only a verified incident can be reopened.");
+  }
+
+  assertIncidentInScope(context, incident.locationDistrict);
+
+  if (!incident.resolvedAt) {
+    throw new ApiError(409, `${incident.reportId} is not closed.`);
+  }
+
+  const reopened = await clearClosure(incident.id);
+
+  if (!reopened) {
+    throw new ApiError(409, `${incident.reportId} was already reopened by another officer.`);
+  }
+
+  const current = await findIncident(incident.id);
+
+  if (!current) {
+    throw new ApiError(500, "The incident was reopened but could not be read back.");
+  }
+
+  announceIncident(
+    current,
+    "REOPENED",
+    `${current.reportId} is back on the ${current.locationDistrict} desk.`
+  );
+
+  return current;
 }
 
 export async function recommendForIncident(
@@ -254,6 +393,14 @@ export async function dispatchTeam(
     throw new ApiError(500, "The dispatch was saved but could not be read back.");
   }
 
+  // The board moves for every officer watching the district, and the leader's
+  // phone rings: they are the one person here who is not sitting at a screen.
+  announceMission(
+    roll,
+    `${roll.teamName} tasked to ${roll.reportPublicId} as ${roll.dispatchCode}.`
+  );
+  pushWhisper(notifyLeaderOfTasking(roll), "tasking notification");
+
   return roll;
 }
 
@@ -273,7 +420,17 @@ export async function cancelDispatch(
     );
   }
 
-  return moveToStatus(dispatch.id, "CANCELLED", context, trim(reason));
+  const note = trim(reason);
+  const roll = await moveToStatus(dispatch.id, "CANCELLED", context, note);
+
+  // The team is out on the road and cannot see the portal: this is the message
+  // that turns them around, so it goes to the handset with the reason attached.
+  pushWhisper(
+    notifyLeaderOfStandDown(roll, note ?? undefined),
+    "stand-down notification"
+  );
+
+  return roll;
 }
 
 export interface LeaderAction {
@@ -399,6 +556,13 @@ async function moveToStatus(
     throw new ApiError(500, "The stage was saved but could not be read back.");
   }
 
+  // Every stage a leader taps on a phone lands here, which is what makes the
+  // officer's board move the second it happens instead of on the next poll.
+  announceMission(
+    roll,
+    `${roll.teamName} · ${roll.dispatchCode} is now ${roll.status.toLowerCase().replace(/_/g, " ")}.`
+  );
+
   return roll;
 }
 
@@ -421,6 +585,59 @@ function assertIncidentInScope(context: OfficerContext, district: string): void 
       `That incident is in ${district}, and your office covers ${context.district}. A DMC duty officer can task across districts.`
     );
   }
+}
+
+/**
+ * Announce something that is already committed.
+ *
+ * The live feed and the handset are both best effort by design: the write is
+ * safe in the database, the board polls anyway, and a notification layer that
+ * can fail a dispatch would turn a dead gateway into a stuck rescue.
+ */
+function announceMission(roll: DispatchRoll, message: string): void {
+  publishDispatchEvent({
+    kind: "dispatch",
+    district: roll.district,
+    reportId: roll.reportPublicId,
+    dispatchCode: roll.dispatchCode,
+    teamName: roll.teamName,
+    status: roll.status,
+    message,
+  });
+}
+
+function announceIncident(
+  incident: IncidentSummary,
+  status: "CLOSED" | "REOPENED",
+  message: string
+): void {
+  publishDispatchEvent({
+    kind: "incident",
+    district: incident.locationDistrict,
+    reportId: incident.reportId,
+    status,
+    message,
+  });
+}
+
+/** Only the outcomes worth an operator's attention are printed. */
+function pushWhisper(
+  attempt: Promise<PushOutcome>,
+  label: string
+): void {
+  attempt
+    .then((outcome) => {
+      if (outcome === "sent" || outcome === "no-token" || outcome === "disabled") {
+        return;
+      }
+
+      console.warn(`[dispatch-push] ${label}: ${outcome}`);
+    })
+    .catch((error: unknown) => {
+      console.warn(
+        `[dispatch-push] ${label}: ${(error as Error)?.message ?? "unknown error"}`
+      );
+    });
 }
 
 /** DSP-261009-3F2A9C: readable over the phone, unique enough for a district. */

@@ -13,6 +13,7 @@ import DeliveryVolunteerRegistrationScreen from "./src/screens/dushani-DeliveryV
 import TeamLeaderRegistrationScreen from "./src/screens/dushani-TeamLeaderRegistrationScreen";
 import RegistrationSuccessScreen from "./src/screens/dushani-RegistrationSuccessScreen";
 import CitizenAlertArea from "./src/screens/dushani-CitizenAlertArea";
+import LeaderApp from "./src/screens/kaveesha-LeaderApp";
 
 import type { LoginResult } from "./src/services/dildhara-authApi";
 
@@ -27,6 +28,13 @@ type ScreenType =
   | "delivery-registration"
   | "team-leader-registration"
   | "success";
+
+/** The two roles that lead a rescue team, and so get the mobile leader board. */
+const TEAM_LEADER_ROLES = new Set(["ORGANIZATION_TEAM_LEADER", "INDEPENDENT_TEAM_LEADER"]);
+
+function isTeamLeader(role: string): boolean {
+  return TEAM_LEADER_ROLES.has(role);
+}
 
 export default function App() {
   return (
@@ -63,6 +71,19 @@ function Screens() {
   const handleSignOut = useCallback(() => setSession(null), []);
 
   if (session) {
+    // A rescue team leader is not a citizen filing reports — their job is to be
+    // tasked and to move a mission from the field, so they get the leader's
+    // mobile command post. Everyone else keeps the citizen alert area.
+    if (isTeamLeader(session.account.role)) {
+      return (
+        <LeaderApp
+          token={session.token}
+          account={session.account}
+          onSignOut={handleSignOut}
+        />
+      );
+    }
+
     return (
       <CitizenAlertArea
         token={session.token}
