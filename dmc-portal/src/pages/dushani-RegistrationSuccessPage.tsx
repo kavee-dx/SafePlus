@@ -28,6 +28,23 @@ const NEXT_STEPS = [
   },
 ];
 
+// A rescue team is verified by the organization admin it registered under, or
+// by a Super Admin when the team is independent, so it gets its own steps.
+const RESCUE_TEAM_NEXT_STEPS = [
+  {
+    title: "Team review",
+    body: "Teams under a verified organization are approved or rejected by that organization's admin. Independent and community teams are reviewed by a DMC Super Admin.",
+  },
+  {
+    title: "Decision by email",
+    body: "You receive an email as soon as the review ends. A rejection comes with the reason so you can correct and resubmit the team.",
+  },
+  {
+    title: "Team goes operational",
+    body: "Once verified, sign in on the DMC portal and the SafePlus mobile app, mark the team available and District Officers can task it.",
+  },
+];
+
 function getRegistrationTitle(registrationType: string): string {
   switch (registrationType) {
     case "dmc-officer":
@@ -38,6 +55,10 @@ function getRegistrationTitle(registrationType: string): string {
       return "Relief Agency";
     case "organization-admin":
       return "Organization Admin";
+    case "rescue-organization":
+      return "Rescue Organization";
+    case "rescue-team":
+      return "Rescue Team";
     case "food-donor":
       return "Food Donor";
     case "delivery-volunteer":
@@ -55,6 +76,9 @@ export default function RegistrationSuccessPage({
   onBack,
   registrationType,
 }: RegistrationSuccessPageProps) {
+  const isRescueTeam = registrationType === "rescue-team";
+  const nextSteps = isRescueTeam ? RESCUE_TEAM_NEXT_STEPS : NEXT_STEPS;
+
   return (
     <div className="registration-success-page">
       <header className="success-hero">
@@ -81,8 +105,11 @@ export default function RegistrationSuccessPage({
           <div className="hero-heading">
             <h1>Registration submitted</h1>
             <p>
-              Your {getRegistrationTitle(registrationType)} registration is now
-              with the Super Admin for verification.
+              {isRescueTeam
+                ? "Your rescue team is submitted as PENDING and is now with the reviewer for the affiliation you chose."
+                : `Your ${getRegistrationTitle(
+                    registrationType
+                  )} registration is now with the Super Admin for verification.`}
             </p>
           </div>
         </div>
@@ -107,7 +134,7 @@ export default function RegistrationSuccessPage({
         <div className="steps-card">
           <h3>What happens next</h3>
           <ol>
-            {NEXT_STEPS.map((step, index) => (
+            {nextSteps.map((step, index) => (
               <li key={step.title}>
                 <span className="step-number">{index + 1}</span>
                 <div className="step-content">

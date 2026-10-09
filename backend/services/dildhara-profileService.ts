@@ -10,6 +10,7 @@ const DETAIL_TABLES: Partial<Record<UserRole, string>> = {
   DELIVERY_VOLUNTEER_TEAM: "delivery_volunteer_teams",
   RELIEF_AGENCY: "relief_agencies",
   ORGANIZATION_ADMIN: "organization_admins",
+  RESCUE_ORGANIZATION_ADMIN: "rescue_organizations",
   ORGANIZATION_TEAM_LEADER: "team_leaders",
   INDEPENDENT_TEAM_LEADER: "team_leaders",
   DISTRICT_OFFICER: "district_officers",

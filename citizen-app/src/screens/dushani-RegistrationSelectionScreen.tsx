@@ -72,8 +72,8 @@ const GROUPS: {
     options: [
       {
         id: "relief-agency",
-        title: "Relief agency or organization",
-        description: "Government departments, NGOs and military units",
+        title: "Resource donor organization",
+        description: "Government departments, NGOs, military units and other organizations that donate resources",
         icon: "business-outline",
         tone: "blue",
       },

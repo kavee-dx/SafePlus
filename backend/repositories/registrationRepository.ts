@@ -7,6 +7,8 @@ import type {
   NewDmcOfficer,
   NewDistrictOfficer,
   NewOrganizationAdmin,
+  NewRescueOrganization,
+  NewRescueTeam,
   NewReliefAgency,
   NewTeamLeader,
   NewUser,
@@ -175,6 +177,36 @@ export async function insertOrganizationAdmin(
   );
 }
 
+export async function insertRescueOrganization(
+  client: PoolClient,
+  organization: NewRescueOrganization
+): Promise<void> {
+  await client.query(
+    `INSERT INTO rescue_organizations (
+        id, user_id, organization_name, organization_type, registration_number,
+        district, address, official_email, official_phone, admin_full_name,
+        admin_designation, admin_email, admin_phone
+     )
+     VALUES (
+        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+     )`,
+    [
+      organization.user_id,
+      organization.organization_name,
+      organization.organization_type,
+      organization.registration_number,
+      organization.district,
+      organization.address,
+      organization.official_email,
+      organization.official_phone,
+      organization.admin_full_name,
+      organization.admin_designation,
+      organization.admin_email,
+      organization.admin_phone,
+    ]
+  );
+}
+
 export async function insertTeamLeader(
   client: PoolClient,
   leader: NewTeamLeader
@@ -202,6 +234,47 @@ export async function insertTeamLeader(
       leader.operating_district,
       leader.member_count,
       leader.member_details,
+    ]
+  );
+}
+
+export async function insertRescueTeam(
+  client: PoolClient,
+  team: NewRescueTeam
+): Promise<void> {
+  await client.query(
+    `INSERT INTO team_leaders (
+        id, user_id, affiliation, verified_by, organization_name,
+        organization_registration_number, team_name, team_type,
+        leader_full_name, leader_designation, leader_phone_number,
+        team_contact_number, address, operating_district, member_count,
+        capabilities, equipment, base_latitude, base_longitude,
+        base_location_label
+     )
+     VALUES (
+        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+     )`,
+    [
+      team.user_id,
+      team.affiliation,
+      team.verified_by,
+      team.organization_name,
+      team.organization_registration_number,
+      team.team_name,
+      team.team_type,
+      team.leader_full_name,
+      team.leader_designation,
+      team.leader_phone_number,
+      team.team_contact_number,
+      team.address,
+      team.operating_district,
+      team.member_count,
+      team.capabilities,
+      team.equipment,
+      team.base_latitude,
+      team.base_longitude,
+      team.base_location_label,
     ]
   );
 }

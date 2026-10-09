@@ -140,6 +140,15 @@ export const username: Validator = (value) => {
   return null;
 };
 
+export const optionalUsername: Validator = (value) => {
+  const v = trimmed(value);
+  if (!v) return null;
+  if (!USERNAME_REGEX.test(v)) {
+    return "Username must be 3-20 letters, numbers, dots, underscores or hyphens.";
+  }
+  return null;
+};
+
 export const optionalNic: Validator = (value) => {
   const v = trimmed(value);
   if (!v) return null;
@@ -176,6 +185,89 @@ export const officerId: Validator = (value) => {
   }
   return null;
 };
+
+export const nic: Validator = (value) => {
+  const v = trimmed(value);
+  if (!v) return "NIC / official ID is required.";
+  if (!NIC_REGEX.test(v)) {
+    return "NIC must be 9 digits followed by V or X, or 12 digits.";
+  }
+  return null;
+};
+
+// Sri Lanka sits inside this band, so a pasted coordinate from another country
+// never reaches the rescue map.
+export const SRILANKA_LAT_RANGE: [number, number] = [5.85, 10.55];
+export const SRILANKA_LNG_RANGE: [number, number] = [79.6, 82.0];
+
+function coordInRange(
+  label: string,
+  value: string,
+  range: [number, number]
+): string | null {
+  const v = trimmed(value);
+  if (!v) return `${label} is required.`;
+
+  const parsed = Number(v);
+  if (!Number.isFinite(parsed)) return `${label} must be a number.`;
+  if (parsed < range[0] || parsed > range[1]) {
+    return `${label} must be within Sri Lanka (${range[0]} to ${range[1]}).`;
+  }
+  return null;
+}
+
+export const latitude: Validator = (value) =>
+  coordInRange("Base latitude", value, SRILANKA_LAT_RANGE);
+
+export const longitude: Validator = (value) =>
+  coordInRange("Base longitude", value, SRILANKA_LNG_RANGE);
+
+/**
+ * Multi-choice fields travel as a comma separated string, because every
+ * registration payload is a flat string map.
+ */
+export function splitList(value: string): string[] {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+export function listFrom(
+  label: string,
+  allowed: readonly string[],
+  minSelections = 0
+): Validator {
+  return (value) => {
+    const picked = splitList(value);
+
+    if (picked.length < minSelections) {
+      return minSelections === 1
+        ? `Select at least one ${label.toLowerCase()}.`
+        : `${label} needs at least ${minSelections} selections.`;
+    }
+
+    const unknown = picked.find((item) => !allowed.includes(item));
+    if (unknown) return `${unknown} is not a supported ${label.toLowerCase()}.`;
+
+    return null;
+  };
+}
+
+export function optionalListFrom(
+  label: string,
+  allowed: readonly string[]
+): Validator {
+  return (value) => {
+    const picked = splitList(value);
+    if (picked.length === 0) return null;
+
+    const unknown = picked.find((item) => !allowed.includes(item));
+    if (unknown) return `${unknown} is not a supported ${label.toLowerCase()}.`;
+
+    return null;
+  };
+}
 
 export function positiveInteger(label: string): Validator {
   return (value) => {

@@ -29,6 +29,7 @@ import {
   type EvidenceInput,
   type ExtendedReport,
 } from "../services/amasha-reportApi";
+import { isNetworkAvailable } from "../services/amasha-network";
 import {
   isUnreachable,
   saveOfflineReport,
@@ -301,6 +302,13 @@ export default function ReportHazardScreen({
     setSaving(true);
 
     try {
+      if (!isUpdate && !(await isNetworkAvailable())) {
+        const saved = await saveOfflineReport(userKey, built.payload);
+        setReference(saved.id);
+        setOutcome("offline");
+        return;
+      }
+
       const report = isUpdate && updateReportId
         ? await resubmitReport(token, updateReportId, built.payload)
         : await submitDetailedReport(token, built.payload);
@@ -350,10 +358,10 @@ export default function ReportHazardScreen({
   if (outcome) {
     return (
       <FormScreenShell
-        title={outcome === "offline" ? "Saved on this phone" : "Report sent"}
+        title={outcome === "offline" ? "Saved locally" : "Report sent"}
         subtitle={
           outcome === "offline"
-            ? "No network. The report is stored as Pending Synchronization."
+            ? "The report has been saved locally with status Pending Synchronization."
             : "A DMC officer is notified and will verify it before any alert is issued."
         }
         badge={reference ?? undefined}
@@ -364,14 +372,14 @@ export default function ReportHazardScreen({
             tone={outcome === "offline" ? "pending" : "info"}
             title={
               outcome === "offline"
-                ? "Pending synchronization"
+                ? "Pending Synchronization"
                 : isUpdate
                   ? "Back in the verification queue"
-                  : "Awaiting verification"
+                  : "Pending Verification"
             }
             body={
               outcome === "offline"
-                ? "When you are online again, open My reports and we will send this to SafePlus automatically."
+                ? "When network connectivity returns, SafePlus will send this report. The server will set it to Pending Verification and notify a DMC officer."
                 : "You will see the officer's decision, including any request for more information, on your reports page."
             }
           />

@@ -25,7 +25,9 @@ async function migrate() {
       "delivery_volunteer_teams.sql",
       "relief_agencies.sql",
       "organization_admins.sql",
+      "kaveesha-rescue_organizations.sql",
       "team_leaders.sql",
+      "kaveesha-rescue_team_columns.sql",
       "district_officers.sql",
       "dmc_officers.sql",
       "hazard_reports.sql",
@@ -39,6 +41,8 @@ async function migrate() {
       "warning_expiry.sql",
       "warning_audit_delete_action.sql",
       "broadcast_status_skipped.sql"
+      "kaveesha-rescue_dispatch.sql",
+      "kaveesha-district_incident_acceptance.sql"
     ];
 
     for (const file of migrationFiles) {

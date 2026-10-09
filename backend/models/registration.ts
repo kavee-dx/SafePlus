@@ -8,6 +8,7 @@ export type UserRole =
   | "FOOD_DONOR"
   | "RELIEF_AGENCY"
   | "ORGANIZATION_ADMIN"
+  | "RESCUE_ORGANIZATION_ADMIN"
   | "ORGANIZATION_TEAM_LEADER"
   | "INDEPENDENT_TEAM_LEADER"
   | "DISTRICT_OFFICER"
@@ -31,6 +32,7 @@ export const ROLE_INTERFACES: Record<UserRole, readonly InterfaceAccess[]> = {
   FOOD_DONOR: ["MOBILE_APP"],
   RELIEF_AGENCY: ["MOBILE_APP"],
   ORGANIZATION_ADMIN: ["DMC_PORTAL"],
+  RESCUE_ORGANIZATION_ADMIN: ["DMC_PORTAL"],
   ORGANIZATION_TEAM_LEADER: ["MOBILE_APP", "DMC_PORTAL"],
   INDEPENDENT_TEAM_LEADER: ["MOBILE_APP", "DMC_PORTAL"],
   DISTRICT_OFFICER: ["DMC_PORTAL"],
@@ -119,6 +121,21 @@ export interface NewOrganizationAdmin {
   rescue_team_count: number;
 }
 
+export interface NewRescueOrganization {
+  user_id: string;
+  organization_name: string;
+  organization_type: string;
+  registration_number: string;
+  district: string;
+  address: string;
+  official_email: string;
+  official_phone: string;
+  admin_full_name: string;
+  admin_designation: string;
+  admin_email: string;
+  admin_phone: string;
+}
+
 export interface NewTeamLeader {
   user_id: string;
   affiliation: TeamLeaderAffiliation;
@@ -141,6 +158,33 @@ export interface NewDistrictOfficer {
   divisional_secretariats: string | null;
   clearance_level: string;
   duty_phone_number: string;
+}
+
+/**
+ * The rescue team profile behind the new team-leader registration. It writes to
+ * the same team_leaders table as the earlier flow, but carries the operational
+ * detail (specialism, capabilities, kit and the mapped base location).
+ */
+export interface NewRescueTeam {
+  user_id: string;
+  affiliation: TeamLeaderAffiliation;
+  verified_by: Verifier;
+  organization_name: string | null;
+  organization_registration_number: string | null;
+  team_name: string;
+  team_type: string;
+  leader_full_name: string;
+  leader_designation: string | null;
+  leader_phone_number: string;
+  team_contact_number: string;
+  address: string | null;
+  operating_district: string;
+  member_count: number;
+  capabilities: string[];
+  equipment: string[];
+  base_latitude: number;
+  base_longitude: number;
+  base_location_label: string | null;
 }
 
 export interface NewDmcOfficer {
@@ -174,6 +218,10 @@ export interface RegistrationTypeDefinition {
     userId: string,
     payload: RegistrationPayload
   ) => NewOrganizationAdmin;
+  toRescueOrganization?: (
+    userId: string,
+    payload: RegistrationPayload
+  ) => NewRescueOrganization;
   toReliefAgency?: (
     userId: string,
     payload: RegistrationPayload
@@ -182,6 +230,10 @@ export interface RegistrationTypeDefinition {
     userId: string,
     payload: RegistrationPayload
   ) => NewTeamLeader;
+  toRescueTeam?: (
+    userId: string,
+    payload: RegistrationPayload
+  ) => NewRescueTeam;
   toDistrictOfficer?: (
     userId: string,
     payload: RegistrationPayload
@@ -207,6 +259,60 @@ const RESCUE_ORGANIZATION_TYPES = [
   "NGO",
   "Military Unit",
   "Other",
+] as const;
+
+// Organization types accepted by the dedicated Rescue Organization registration.
+const RESCUE_ORG_CATEGORY_TYPES = [
+  "Government Agency",
+  "Armed Forces",
+  "Police / Emergency Service",
+  "Fire & Rescue",
+  "NGO",
+  "Community Organization",
+  "Private Emergency Service",
+  "Other",
+] as const;
+
+// Rescue team specialism, capabilities and kit. The same lists are mirrored in
+// the portal so the checkboxes and the server never disagree.
+export const RESCUE_TEAM_TYPES = [
+  "Flood Rescue",
+  "Water Rescue",
+  "Landslide Rescue",
+  "Search & Rescue",
+  "Fire & Rescue",
+  "Medical Rescue",
+  "Urban Search & Rescue",
+  "Multi-Hazard Rescue",
+  "Other",
+] as const;
+
+export const RESCUE_TEAM_CAPABILITIES = [
+  "Flood Rescue",
+  "Water Rescue",
+  "Landslide Rescue",
+  "Search & Rescue",
+  "Medical / First Aid",
+  "Evacuation",
+  "Fire Rescue",
+  "Night Operations",
+] as const;
+
+export const RESCUE_TEAM_EQUIPMENT = [
+  "Rescue Boat",
+  "Life Jackets",
+  "Ropes",
+  "First Aid Kit",
+  "Radio",
+  "Rescue Vehicle",
+  "Search Lights",
+  "Drone",
+] as const;
+
+export const TEAM_AVAILABILITY_STATES = [
+  "UNAVAILABLE",
+  "AVAILABLE",
+  "ON_DEPLOYMENT",
 ] as const;
 
 const DESIGNATIONS = [
@@ -344,6 +450,106 @@ function teamLeaderProfile(
     operating_district: value(payload, "operatingDistrict"),
     member_count: toCount(value(payload, "numberOfMembers")),
     member_details: orNull(payload, "teamMemberDetails"),
+  };
+}
+
+// ---- Rescue team registration (organization-based and independent teams) ----
+
+const rescueTeamRules: Record<string, Validator> = {
+  leaderFullName: rules.required("Team leader full name"),
+  nicNumber: rules.nic,
+  contactNumber: rules.phone,
+  email: rules.email,
+  teamName: rules.required("Team name"),
+  teamType: rules.oneOf("Team type", RESCUE_TEAM_TYPES),
+  teamSize: rules.positiveInteger("Team size"),
+  district: rules.required("District"),
+  teamContactNumber: rules.phone,
+  capabilities: rules.listFrom(
+    "Capabilities",
+    RESCUE_TEAM_CAPABILITIES,
+    1
+  ),
+  equipment: rules.optionalListFrom("Equipment", RESCUE_TEAM_EQUIPMENT),
+  baseLatitude: rules.latitude,
+  baseLongitude: rules.longitude,
+  baseLocationLabel: rules.optional("Location name"),
+  ...sharedAccountRules,
+  // The team leader signs in with an email, so a username stays optional and
+  // is derived from the email address when it is left blank.
+  username: rules.optionalUsername,
+};
+
+const organizationChoiceRules: Record<string, Validator> = {
+  organizationName: rules.required("Organization"),
+  organizationRegistrationNumber: rules.required(
+    "Organization registration ID",
+    3
+  ),
+};
+
+function uniqueList(value: string): string[] {
+  return [...new Set(rules.splitList(value))];
+}
+
+function rescueTeamUser(
+  role: UserRole,
+  payload: RegistrationPayload,
+  passwordHash: string
+): Omit<NewUser, "id"> {
+  const email = value(payload, "email").toLowerCase();
+
+  return {
+    full_name: value(payload, "leaderFullName"),
+    email,
+    username: orNull(payload, "username") ?? usernameFromEmail(email),
+    password_hash: passwordHash,
+    phone_number: rules.normalizeSriLankanNumber(value(payload, "contactNumber")),
+    nic_number: value(payload, "nicNumber"),
+    date_of_birth: null,
+    gender: null,
+    address: orNull(payload, "baseLocationLabel"),
+    city: null,
+    district: value(payload, "district"),
+    postal_code: null,
+    role,
+    status: "PENDING_VERIFICATION",
+  };
+}
+
+function rescueTeamProfile(
+  userId: string,
+  payload: RegistrationPayload,
+  affiliation: TeamLeaderAffiliation,
+  verifiedBy: Verifier
+): NewRescueTeam {
+  return {
+    user_id: userId,
+    affiliation,
+    verified_by: verifiedBy,
+    organization_name: orNull(payload, "organizationName"),
+    organization_registration_number: orNull(
+      payload,
+      "organizationRegistrationNumber"
+    ),
+    team_name: value(payload, "teamName"),
+    team_type: value(payload, "teamType"),
+    leader_full_name: value(payload, "leaderFullName"),
+    leader_designation: orNull(payload, "leaderDesignation"),
+    leader_phone_number: rules.normalizeSriLankanNumber(
+      value(payload, "contactNumber")
+    ),
+    team_contact_number: rules.normalizeSriLankanNumber(
+      value(payload, "teamContactNumber")
+    ),
+    address: orNull(payload, "baseLocationLabel"),
+    operating_district: value(payload, "district"),
+    member_count: toCount(value(payload, "teamSize")),
+    capabilities: uniqueList(value(payload, "capabilities")),
+    equipment: uniqueList(value(payload, "equipment")),
+    base_latitude: Number(value(payload, "baseLatitude")),
+    base_longitude: Number(value(payload, "baseLongitude")),
+    base_location_label: orNull(payload, "baseLocationLabel"),
   };
 }
 
@@ -630,6 +836,65 @@ const REGISTRATION_TYPE_DEFS: Record<
     }),
   },
 
+  // Dedicated Rescue Organization registration. Kept separate from
+  // "organization-admin" so the existing flow is untouched.
+  "rescue-organization": {
+    role: "RESCUE_ORGANIZATION_ADMIN",
+    status: "PENDING_VERIFICATION",
+    verifiedBy: "SUPER_ADMIN",
+    validators: {
+      organizationName: rules.required("Organization name"),
+      organizationType: rules.oneOf("Organization type", RESCUE_ORG_CATEGORY_TYPES),
+      registrationNumber: rules.required("Organization / registration ID", 3),
+      district: rules.required("District"),
+      organizationAddress: rules.required("Address", 5),
+      officialEmail: rules.email,
+      officialPhone: rules.phone,
+      adminFullName: rules.required("Full name"),
+      adminDesignation: rules.required("Designation"),
+      adminEmail: rules.email,
+      adminPhone: rules.phone,
+      password: rules.password,
+      confirmPassword: rules.confirmPassword,
+    },
+    toUser: (payload, passwordHash) => {
+      const adminEmail = value(payload, "adminEmail").toLowerCase();
+
+      return {
+        full_name: value(payload, "adminFullName"),
+        email: adminEmail,
+        username: orNull(payload, "username") ?? usernameFromEmail(adminEmail),
+        password_hash: passwordHash,
+        phone_number: rules.normalizeSriLankanNumber(value(payload, "adminPhone")),
+        nic_number: null,
+        date_of_birth: null,
+        gender: null,
+        address: orNull(payload, "organizationAddress"),
+        city: null,
+        district: value(payload, "district"),
+        postal_code: null,
+        role: "RESCUE_ORGANIZATION_ADMIN",
+        status: "PENDING_VERIFICATION",
+      };
+    },
+    toRescueOrganization: (userId, payload) => ({
+      user_id: userId,
+      organization_name: value(payload, "organizationName"),
+      organization_type: value(payload, "organizationType"),
+      registration_number: value(payload, "registrationNumber"),
+      district: value(payload, "district"),
+      address: value(payload, "organizationAddress"),
+      official_email: value(payload, "officialEmail").toLowerCase(),
+      official_phone: rules.normalizeSriLankanNumber(
+        value(payload, "officialPhone")
+      ),
+      admin_full_name: value(payload, "adminFullName"),
+      admin_designation: value(payload, "adminDesignation"),
+      admin_email: value(payload, "adminEmail").toLowerCase(),
+      admin_phone: rules.normalizeSriLankanNumber(value(payload, "adminPhone")),
+    }),
+  },
+
   "organization-team-leader": {
     role: "ORGANIZATION_TEAM_LEADER",
     status: "PENDING_VERIFICATION",
@@ -663,6 +928,38 @@ const REGISTRATION_TYPE_DEFS: Record<
       teamLeaderUser("INDEPENDENT_TEAM_LEADER", payload, passwordHash),
     toTeamLeader: (userId, payload) =>
       teamLeaderProfile(userId, payload, "INDEPENDENT", "SUPER_ADMIN"),
+  },
+
+  // Rescue team that belongs to a verified organization. The Organization Admin
+  // reviews it, so it never enters the Super Admin queue.
+  "rescue-team-organization": {
+    role: "ORGANIZATION_TEAM_LEADER",
+    status: "PENDING_VERIFICATION",
+    verifiedBy: "ORGANIZATION_ADMIN",
+    validators: {
+      ...organizationChoiceRules,
+      leaderDesignation: rules.required("Designation"),
+      ...rescueTeamRules,
+    },
+    toUser: (payload, passwordHash) =>
+      rescueTeamUser("ORGANIZATION_TEAM_LEADER", payload, passwordHash),
+    toRescueTeam: (userId, payload) =>
+      rescueTeamProfile(userId, payload, "ORGANIZATION", "ORGANIZATION_ADMIN"),
+  },
+
+  // Independent / community rescue team. No organization is chosen, so the
+  // Super Admin verifies the team directly.
+  "rescue-team-independent": {
+    role: "INDEPENDENT_TEAM_LEADER",
+    status: "PENDING_VERIFICATION",
+    verifiedBy: "SUPER_ADMIN",
+    validators: {
+      ...rescueTeamRules,
+    },
+    toUser: (payload, passwordHash) =>
+      rescueTeamUser("INDEPENDENT_TEAM_LEADER", payload, passwordHash),
+    toRescueTeam: (userId, payload) =>
+      rescueTeamProfile(userId, payload, "INDEPENDENT", "SUPER_ADMIN"),
   },
 
   "district-officer": {
@@ -809,6 +1106,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   FOOD_DONOR: "Food Donor",
   RELIEF_AGENCY: "Relief Agency",
   ORGANIZATION_ADMIN: "Organization Admin",
+  RESCUE_ORGANIZATION_ADMIN: "Rescue Organization Admin",
   ORGANIZATION_TEAM_LEADER: "Organization Team Leader",
   INDEPENDENT_TEAM_LEADER: "Independent Team Leader",
   DISTRICT_OFFICER: "District Officer",

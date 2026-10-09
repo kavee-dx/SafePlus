@@ -43,6 +43,15 @@ const STATUS_MESSAGES: Record<string, string> = {
   SUSPENDED: "Your account has been suspended. Please contact support.",
 };
 
+// A rejected rescue team still belongs to the leader who submitted it, and the
+// review loop only closes if that leader can open the rejection reason and send
+// the team back. Those two roles may sign in while REJECTED; the team stays
+// unverified, so it is still invisible to dispatch until a reviewer approves it.
+const REJECTED_SIGN_IN_ROLES: UserRole[] = [
+  "ORGANIZATION_TEAM_LEADER",
+  "INDEPENDENT_TEAM_LEADER",
+];
+
 let dummyHash: string | null = null;
 
 // Used when the email doesn't exist, so bcrypt still does the same work.
@@ -118,7 +127,13 @@ export async function loginAccount(
     throw new ApiError(401, "Invalid email or password.");
   }
 
-  if (user.status !== "ACTIVE") {
+  // A rejected team stays unverified, but its leader must still be able to open
+  // the rejection reason and fix the submission. Every other role is blocked
+  // until it is approved.
+  const canSignInWhileRejected =
+    user.status === "REJECTED" && REJECTED_SIGN_IN_ROLES.includes(user.role as UserRole);
+
+  if (user.status !== "ACTIVE" && !canSignInWhileRejected) {
     throw new ApiError(
       403,
       STATUS_MESSAGES[user.status] ?? "Your account cannot sign in right now."

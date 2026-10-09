@@ -9,6 +9,8 @@ import {
   Section,
 } from "../components/dildhara-ProfileParts";
 import { ChipField, EditField } from "../components/dildhara-EditFields";
+import MyResourcesScreen from "./dildhara-MyResourcesScreen";
+import ProvideResourceScreen from "./dildhara-ProvideResourceScreen";
 
 type Value = string | number | boolean | null | undefined;
 
@@ -238,6 +240,9 @@ export default function ProfileScreen({
   onSessionExpired,
 }: ProfileScreenProps) {
   const [editing, setEditing] = useState(false);
+  const [resourcePage, setResourcePage] = useState<
+  "none" | "my" | "provide"
+>("none");
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saveError, setSaveError] = useState("");
@@ -355,7 +360,30 @@ export default function ProfileScreen({
   };
 
   const headerName = String(profile.details?.agencyName ?? profile.user.fullName);
+const canProvideResources =
+  profile.user.role === "RELIEF_AGENCY" ||
+  profile.user.role === "FOOD_DONOR";
+ if (resourcePage === "provide") {
+  return (
+    <ProvideResourceScreen
+      token={token}
+      onSuccess={() => setResourcePage("none")}
+      onCancel={() => setResourcePage("none")}
+      onSessionExpired={onSessionExpired}
+    />
+  );
+}
 
+if (resourcePage === "my") {
+  return (
+    <MyResourcesScreen
+      token={token}
+      onProvideResource={() => setResourcePage("provide")}
+      onBack={() => setResourcePage("none")}
+      onSessionExpired={onSessionExpired}
+    />
+  );
+}
   return (
     <View>
       <ProfileHeader
@@ -408,6 +436,32 @@ export default function ProfileScreen({
           {section.fields.filter(visibleField).map(renderField)}
         </Section>
       ))}
+      {/* {canProvideResources ? (
+  <Section title="Relief Resources">
+    <Text className="mb-3 text-sm leading-5 text-safeplus-muted">
+      Provide resources that you are willing to make
+      available for emergency relief operations.
+    </Text>
+
+    <Pressable
+      onPress={() => setResourcePage("my")}
+      className="items-center justify-center h-12 mb-3 rounded-2xl bg-safeplus-green"
+    >
+      <Text className="text-base font-extrabold text-white">
+        My Resources
+      </Text>
+    </Pressable>
+
+    <Pressable
+      onPress={() => setResourcePage("provide")}
+      className="items-center justify-center h-12 bg-white border rounded-2xl border-safeplus-border"
+    >
+      <Text className="text-base font-extrabold text-safeplus-darkGreen">
+        + Provide Resource
+      </Text>
+    </Pressable>
+  </Section>
+) : null} */}
 
       {editing ? (
         <Text className="mb-4 text-xs leading-5 text-safeplus-muted">

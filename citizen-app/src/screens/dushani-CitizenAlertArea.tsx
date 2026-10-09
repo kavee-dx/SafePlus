@@ -22,7 +22,7 @@ import HomeScreen from "./dildhara-HomeScreen";
 import AlertInboxScreen from "./dushani-AlertInboxScreen";
 import MyReportsScreen from "./amasha-MyReportsScreen";
 import ReportHazardScreen from "./amasha-ReportHazardScreen";
-import { syncOfflineReports } from "../services/amasha-offlineReports";
+import { startOfflineSync } from "../services/amasha-offlineSync";
 
 type Overlay = "none" | "report" | "mine" | "alerts";
 type PushState = "unknown" | "ready" | "blocked" | "unsupported";
@@ -237,8 +237,12 @@ export default function CitizenAlertArea({
   }, []);
 
   useEffect(() => {
-    void syncOfflineReports(token, account.id).catch(() => undefined);
-  }, [token, account.id, pollToken]);
+    return startOfflineSync(token, account.id);
+  }, [token, account.id]);
+
+  // TODO: open the relief centres screen once it is built
+  // (add "relief" to Overlay and call setOverlay("relief") here).
+  const handleFindReliefCenters = () => {};
 
   // A broadcast should land like a system warning, so the banner slides in
   // instead of simply appearing already on screen.
@@ -312,7 +316,20 @@ export default function CitizenAlertArea({
 
   return (
     <View className="flex-1 bg-safeplus-background">
-      <HomeScreen token={token} account={account} onSignOut={onSignOut} />
+      <HomeScreen
+        token={token}
+        account={account}
+        onSignOut={onSignOut}
+        unreadCount={unreadCount}
+        onReportHazard={() => {
+          setUpdateReportId(null);
+          setOverlay("report");
+        }}
+        onOpenMyReports={() => setOverlay("mine")}
+        onOpenAlerts={() => setOverlay("alerts")}
+        onFindReliefCenters={handleFindReliefCenters}
+        onAlertsChanged={() => setPollToken((current) => current + 1)}
+      />
 
       {unreadCount > 0 && (
         <Animated.View
@@ -399,41 +416,6 @@ export default function CitizenAlertArea({
           </Pressable>
         </Animated.View>
       )}
-
-      <Pressable
-        onPress={() => setOverlay("report")}
-        accessibilityRole="button"
-        accessibilityLabel="Report a hazard"
-        className="absolute right-5 bottom-28 flex-row items-center px-5 h-14 rounded-full bg-safeplus-red border border-safeplus-lightRed/30 shadow-lg active:opacity-85"
-      >
-        <Ionicons name="warning-outline" size={20} color="#FFFFFF" className="mr-2" />
-        <Text className="text-sm font-extrabold text-white">Report a hazard</Text>
-      </Pressable>
-
-      <Pressable
-        onPress={() => setOverlay("alerts")}
-        accessibilityRole="button"
-        accessibilityLabel="DMC alerts"
-        className="absolute right-20 bottom-8 items-center justify-center w-12 h-12 rounded-full bg-safeplus-navySoft border border-safeplus-navyLine/70 shadow-md active:opacity-85"
-      >
-        <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
-        {unreadCount > 0 && (
-          <View className="absolute -top-1 -right-1 items-center justify-center min-w-6 h-6 px-1.5 rounded-full bg-safeplus-red border-2 border-safeplus-surface shadow-sm">
-            <Text style={tabular} className="text-[10px] font-extrabold text-white">
-              {unreadCount}
-            </Text>
-          </View>
-        )}
-      </Pressable>
-
-      <Pressable
-        onPress={() => setOverlay("mine")}
-        accessibilityRole="button"
-        accessibilityLabel="My reports"
-        className="absolute right-5 bottom-8 items-center justify-center w-12 h-12 rounded-full bg-safeplus-navy border border-safeplus-navyLine/70 shadow-md active:opacity-85"
-      >
-        <Ionicons name="list-outline" size={22} color="#FFFFFF" />
-      </Pressable>
     </View>
   );
 }

@@ -12,6 +12,7 @@ const UNIQUE_FIELD_LABELS: Record<string, string> = {
   "users_username_key": "username",
   "users_nic_number_key": "nicNumber",
   "relief_agencies_registration_number_key": "registrationNumber",
+  "rescue_organizations_registration_number_key": "registrationNumber",
   "dmc_officers_officer_id_key": "officerId",
 };
 
