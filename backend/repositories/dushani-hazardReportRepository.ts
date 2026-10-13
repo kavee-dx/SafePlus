@@ -132,6 +132,26 @@ export async function findReportById(
 }
 
 /**
+ * One round trip for a whole page of warnings. Resolving each report on its own
+ * means a database call per row, which is what makes the dashboard slower as
+ * history grows rather than as it loads.
+ */
+export async function findReportsByIds(
+  ids: string[],
+  client: Queryable = pool
+): Promise<Map<string, HazardReport>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const result = await client.query(`${REPORT_SELECT} WHERE r.id = ANY($1)`, [ids]);
+
+  return new Map(
+    (result.rows as ReportRow[]).map((row) => [row.id, toReport(row)])
+  );
+}
+
+/**
  * Officers work with the human readable RPT-... id, so every public lookup
  * accepts that and resolves the internal uuid from it.
  */
