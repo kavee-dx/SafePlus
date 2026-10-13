@@ -1,4 +1,4 @@
-import { useId, type CSSProperties, type ReactNode } from "react";
+import { useId, useState, type CSSProperties, type ReactNode } from "react";
 
 import { Colors } from "../constants/theme";
 
@@ -253,6 +253,286 @@ export function CapacityDonutChart({
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- coverage bar chart --------------------------- */
+
+const MONO =
+  "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
+
+/** One disaster type, and how much of the roster can answer it. */
+export interface CoverageRow {
+  key: string;
+  label: string;
+  icon?: ReactNode;
+  teams: number;
+  available: number;
+  deployed: number;
+  resting: number;
+  organizations: number;
+  members: number;
+}
+
+/**
+ * Horizontal stacked bars — one per disaster type — saying how many teams answer
+ * to it, how many of those are free, and how many organizations stand behind them.
+ *
+ * Drawn in HTML rather than SVG because every row is text beside a bar of a
+ * liquid width: the two columns of figures never need measuring or reflowing, and
+ * the bars stay crisp at any container width. Length is proportional to the
+ * strongest discipline rather than to each row's own full, so the eye compares
+ * cover across types instead of reading numbers, and a discipline with no team at
+ * all is drawn as a dashed gap rather than left out — the missing cover is the
+ * thing an officer has to spot fastest.
+ *
+ * The three states are the caller's colours, not the chart's: wherever these bars
+ * sit beside a readiness meter of the same data, both have to be painted from one
+ * palette or the legend stops meaning anything.
+ */
+export function DisasterCoverageChart({
+  rows,
+  availableColor = "#0E9A94",
+  deployedColor = "#5B4FD6",
+  restingColor = "#8C99AD",
+  emptyLabel = "No disaster types to compare yet.",
+}: {
+  rows: CoverageRow[];
+  availableColor?: string;
+  deployedColor?: string;
+  restingColor?: string;
+  emptyLabel?: string;
+}) {
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  if (rows.length === 0) {
+    return <ChartFrame height={140}>{emptyLabel}</ChartFrame>;
+  }
+
+  /* Length is compared, not read, so the axis maximum is the strongest
+     discipline itself whenever the counts are small: rounding 3 teams up to 4
+     would shrink every bar a quarter for nothing, and an officer scanning a
+     district with a handful of teams should see the difference between 2 and 3
+     as a real difference in length. */
+  const peak = Math.max(...rows.map((row) => row.teams), 1);
+  const max = peak <= 5 ? peak : niceMax(peak);
+
+  /* Bars are separated by a hairline gap, and a gap costs width the way a
+     percentage cannot see: three segments asking for 100% plus two gaps would
+     run past the track. So each segment is shortened in proportion to the gap
+     total it is part of, which makes the whole bar land exactly on its length
+     against the axis. */
+  const gap = 2;
+
+  const segment = (color: string, value: number, gapTotal: number): CSSProperties => {
+    const fraction = max > 0 ? value / max : 0;
+
+    return {
+      height: "100%",
+      borderRadius: 999,
+      background: color,
+      width: `calc(${fraction * 100}% - ${gapTotal * fraction}px)`,
+      flexShrink: 0,
+      transition: "width 520ms cubic-bezier(0.22, 0.61, 0.36, 1)",
+    };
+  };
+
+  /* One column model shared by every row and by the axis under them, so the
+     scale always lines up with the bars it belongs to. The label is allowed to
+     break onto a second line rather than be cut: a truncated disaster name is a
+     wrong name, and the bar beside it still measures the same. */
+  const columns = "clamp(118px, 38%, 186px) minmax(0, 1fr) 56px";
+
+  return (
+    <div>
+      {rows.map((row) => {
+        const covered = row.teams > 0;
+        const active = hovered === row.key;
+        const drawn = [row.available, row.deployed, row.resting].filter(
+          (value) => value > 0
+        ).length;
+        const gapTotal = gap * Math.max(drawn - 1, 0);
+
+        return (
+          <div
+            key={row.key}
+            onMouseEnter={() => setHovered(row.key)}
+            onMouseLeave={() =>
+              setHovered((current) => (current === row.key ? null : current))
+            }
+            title={
+              covered
+                ? `${row.available} of ${row.teams} teams available · ${row.organizations} organization${row.organizations === 1 ? "" : "s"} · ${row.members} rescuers`
+                : `No team registered for ${row.label} in this district`
+            }
+            style={{
+              display: "grid",
+              gridTemplateColumns: columns,
+              alignItems: "center",
+              gap: 12,
+              padding: "7px 8px",
+              borderRadius: 10,
+              background: active ? "#f7f9fc" : "transparent",
+              transition: "background 150ms ease",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+              <span
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 8,
+                  display: "grid",
+                  placeItems: "center",
+                  flexShrink: 0,
+                  background: covered ? "#eef4ff" : "#f4f6f9",
+                  color: covered ? Colors.blue : "#98a2b3",
+                }}
+              >
+                {row.icon}
+              </span>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: "-0.01em",
+                  lineHeight: 1.25,
+                  color: covered ? Colors.navy : "#8a94a6",
+                }}
+              >
+                {row.label}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap,
+                /* An uncovered row grows tall enough to hold its words: the
+                   dashed gap is both the bar and the explanation, and text
+                   spilling out of a 14px track would sit over the row below. */
+                height: covered ? 14 : 26,
+                padding: covered ? 2 : "0 10px",
+                borderRadius: 999,
+                overflow: "hidden",
+                background: covered ? "#edf1f6" : "transparent",
+                border: covered ? "1px solid transparent" : "1px dashed #dbe2ea",
+                boxShadow: covered ? "inset 0 1px 2px rgba(16, 24, 40, 0.08)" : "none",
+              }}
+            >
+              {covered ? (
+                <>
+                  <span
+                    style={segment(availableColor, row.available, gapTotal)}
+                  />
+                  {row.deployed > 0 && (
+                    <span style={segment(deployedColor, row.deployed, gapTotal)} />
+                  )}
+                  {row.resting > 0 && (
+                    <span style={segment(restingColor, row.resting, gapTotal)} />
+                  )}
+                </>
+              ) : (
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    lineHeight: 1,
+                    color: "#98a2b3",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  No team
+                </span>
+              )}
+            </div>
+
+            <div style={{ textAlign: "right" }}>
+              <div
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 13.5,
+                  fontWeight: 700,
+                  lineHeight: 1.1,
+                  color: covered ? Colors.navy : "#a4adb9",
+                }}
+              >
+                {row.teams}
+              </div>
+              <div
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  color: "#98a2b3",
+                }}
+              >
+                {row.organizations} org{row.organizations === 1 ? "" : "s"}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* One axis under the bars, so a length means something without reading a
+          single number. */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: columns,
+          gap: 12,
+          marginTop: 4,
+          padding: "0 8px",
+          alignItems: "end",
+        }}
+      >
+        <span />
+        {/* The midpoint has to sit at the half of the scale, not in the middle
+            of the three labels: with space-between the centre token drifts by
+            half the width of its neighbours, which on a short track is enough
+            to make "15" read as though it were 9. */}
+        <span
+          style={{
+            position: "relative",
+            height: 12,
+            fontFamily: MONO,
+            fontSize: 9.5,
+            color: "#a4adb9",
+          }}
+        >
+          <span style={{ position: "absolute", left: 0, top: 0 }}>0</span>
+          {max % 2 === 0 && (
+            <span
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: 0,
+                transform: "translateX(-50%)",
+              }}
+            >
+              {max / 2}
+            </span>
+          )}
+          <span style={{ position: "absolute", right: 0, top: 0 }}>
+            {max} teams
+          </span>
+        </span>
+        <span
+          style={{
+            textAlign: "right",
+            fontSize: 8.5,
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "#a4adb9",
+          }}
+        >
+          teams · orgs
+        </span>
       </div>
     </div>
   );

@@ -52,7 +52,8 @@ export type EvacueeGroupStatus =
   | "ARRIVAL_REPORTED"
   | "ARRIVED"
   | "PARTIAL"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "DECLINED";
 
 export type AllocationStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
 
@@ -425,6 +426,53 @@ export async function cancelGroupAllocation(
     );
 
     return data.group as EvacueeGroup;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/**
+ * Raise (or reuse) a shelter need for a rescue mission before it is completed, so
+ * the officer can allocate beds while the team is still working. Idempotent: the
+ * server returns the mission's existing awaiting-shelter group, or makes one from
+ * the real mission data (its rescued headcount and incident point). Nothing here
+ * is a placeholder — the group it hands back is a live evacuee_groups row.
+ */
+export async function requestShelterForDispatch(
+  token: string,
+  dispatchId: string,
+  peopleCount?: number
+): Promise<EvacueeGroup> {
+  try {
+    const { data } = await api.post(
+      `/rescue-dispatch/dispatches/${dispatchId}/shelter-request`,
+      peopleCount != null ? { peopleCount } : {},
+      { headers: headersFor(token) }
+    );
+
+    return data.group as EvacueeGroup;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/**
+ * Read the shelter handoff a mission currently carries — its status, the beds it
+ * holds and how the team has responded (accepted / driving / declined) — without
+ * raising or correcting anything. A mission with no group returns null, so the
+ * card shows no handoff rather than a placeholder one.
+ */
+export async function fetchShelterGroupForDispatch(
+  token: string,
+  dispatchId: string
+): Promise<EvacueeGroup | null> {
+  try {
+    const { data } = await api.get(
+      `/rescue-dispatch/dispatches/${dispatchId}/shelter-group`,
+      { headers: headersFor(token) }
+    );
+
+    return (data.group as EvacueeGroup) ?? null;
   } catch (error) {
     throw toError(error);
   }

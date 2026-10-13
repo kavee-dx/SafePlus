@@ -6,6 +6,7 @@ import pool from "../config/db";
 import { ApiError } from "../utils/apiError";
 import type { OfficerContext } from "./kaveesha-dispatchService";
 import { publishDispatchEvent } from "./kaveesha-dispatchEvents";
+import { notifyLeaderOfShelterAssignment } from "./kaveesha-leaderPushService";
 import {
   insertUser,
   withTransaction,
@@ -33,6 +34,7 @@ import {
   districtsWithShelters,
   findAllocation,
   findGroup,
+  findGroupByDispatch,
   findManagerByUserId,
   findShelter,
   groupExistsForDispatch,
@@ -48,6 +50,7 @@ import {
   occupancyTrend,
   rollupGroupAllocations,
   searchShelters,
+  setGroupPeopleCount,
   setGroupStatus,
   setManagerStatus,
   updateShelter,
@@ -477,6 +480,9 @@ export async function allocateGroup(
     );
   }
 
+  // Collected as we go so the leader can be told, by name, where to drive.
+  const plan: { name: string; count: number }[] = [];
+
   await withTransaction(async (client) => {
     // Drop the previous plan's reservations (occupancy is untouched by this).
     await cancelPendingForGroup(client, groupId);
@@ -502,6 +508,9 @@ export async function allocateGroup(
         allocatedCount: line.count,
         allocatedBy: context.userId,
       });
+
+      const shelter = await findShelter(line.shelterId);
+      plan.push({ name: shelter?.name ?? "a shelter", count: line.count });
 
       await insertEvent(client, {
         shelterId: line.shelterId,
@@ -529,6 +538,15 @@ export async function allocateGroup(
       cleaned.length === 1 ? "" : "s"
     }.`,
   });
+
+  // Hand it back to the team that did the rescue: the officer has found beds, so
+  // the leader needs to know where to drive the people. Fire-and-forget — a lost
+  // notification must never undo a committed allocation.
+  if (group.sourceDispatchId && plan.length > 0) {
+    void notifyLeaderOfShelterAssignment(group.sourceDispatchId, group.groupCode, plan).catch(
+      () => undefined
+    );
+  }
 
   return updated;
 }
@@ -1082,6 +1100,78 @@ export async function createGroupForCompletedDispatch(
   return group;
 }
 
+/**
+ * Raise (or read back) the shelter request a rescue mission needs, so an officer
+ * can allocate beds before the mission is even closed. Unlike the completed-stage
+ * handoff — which stays silent when there is nobody to shelter — this is driven by
+ * an officer's click, so a missing headcount is an error worth surfacing.
+ *
+ * It is idempotent on the dispatch: one request per mission. If the group already
+ * exists it is returned as-is, correcting the headcount only while it is still
+ * AWAITING_SHELTER (once beds are reserved the number is fixed by the allocations)
+ * and never undoing work already done. The count defaults to what the team
+ * reported (rescued/evacuated) so a completed mission needs no re-entry.
+ */
+export async function ensureGroupForDispatch(
+  roll: DispatchRoll,
+  requestedCount?: number
+): Promise<EvacueeGroup> {
+  const requested = Math.trunc(requestedCount ?? 0);
+  const reported = Math.max(Math.trunc(roll.peopleRescued ?? 0), Math.trunc(roll.peopleEvacuated ?? 0));
+
+  const existing = await findGroupByDispatch(roll.id);
+
+  if (existing) {
+    if (requested > 0 && requested !== existing.peopleCount && existing.status === "AWAITING_SHELTER") {
+      await withTransaction((client) => setGroupPeopleCount(client, existing.id, requested));
+      const corrected = await findGroup(existing.id);
+
+      if (corrected) return corrected;
+    }
+
+    return existing;
+  }
+
+  const peopleCount = requested > 0 ? requested : reported;
+
+  if (peopleCount <= 0) {
+    throw new ApiError(
+      400,
+      "Say how many people this mission needs shelter for."
+    );
+  }
+
+  if (!roll.district) {
+    throw new ApiError(400, "This mission has no district to shelter in.");
+  }
+
+  const groupId = await withTransaction((client) =>
+    insertGroup(client, {
+      peopleCount,
+      vulnerableCount: 0,
+      arrivalSource: "RESCUE_TEAM",
+      district: roll.district,
+      originLatitude: roll.incidentLat,
+      originLongitude: roll.incidentLng,
+      sourceDispatchId: roll.id,
+      incidentReportId: roll.reportId,
+      status: "AWAITING_SHELTER",
+    })
+  );
+
+  const group = await findGroup(groupId);
+
+  if (!group) {
+    throw new ApiError(500, "The shelter request was created but could not be read back.");
+  }
+
+  announceShelter(group.district, undefined, group.groupCode, {
+    message: `${roll.dispatchCode} raised a shelter request — group ${group.groupCode} (${peopleCount} people) is awaiting allocation.`,
+  });
+
+  return group;
+}
+
 /** A team leader says they reached the shelter they were sent to. */
 export async function markGroupArrivalReported(
   dispatchId: string
@@ -1106,6 +1196,96 @@ export async function markGroupArrivalReported(
   }
 
   return updated ?? null;
+}
+
+/**
+ * A team leader accepts the shelter plan and starts moving the group there. Only
+ * an ALLOCATED plan can be accepted, so a double tap or a leader who has already
+ * reported arrival cannot walk the group backwards through the machine.
+ */
+export async function markGroupInTransit(
+  dispatchId: string
+): Promise<EvacueeGroup | null> {
+  const groups = await listGroups(undefined, true);
+  const group = groups.find((g) => g.sourceDispatchId === dispatchId);
+
+  if (!group) return null;
+
+  if (group.status !== "ALLOCATED") return group;
+
+  await withTransaction((client) => setGroupStatus(client, group.id, "IN_TRANSIT"));
+
+  const updated = await findGroup(group.id);
+
+  if (updated) {
+    announceShelter(updated.district, undefined, updated.groupCode, {
+      message: `${updated.groupCode} accepted the shelter plan and is on the way.`,
+    });
+  }
+
+  return updated ?? null;
+}
+
+/**
+ * A team leader declines the shelter plan the district assigned for the people
+ * they rescued — the beds sit on the wrong side of the flood, or cannot take a
+ * vulnerable member. Their reservations are stood down (capacity freed at once)
+ * and the group lands in a still-open DECLINED state, so the officer reads it as
+ * "needs reassigning" rather than a plan quietly left in place. Declining a group
+ * that is not ALLOCATED is a harmless no-op, so a double tap changes nothing.
+ */
+export async function markGroupRejectedByLeader(
+  dispatchId: string
+): Promise<EvacueeGroup | null> {
+  const group = await findGroupByDispatch(dispatchId);
+
+  if (!group) return null;
+
+  if (group.status !== "ALLOCATED") return group;
+
+  await withTransaction(async (client) => {
+    for (const allocation of group.allocations) {
+      if (allocation.status !== "PENDING") continue;
+
+      await client.query(
+        `UPDATE shelter_allocations
+            SET status = 'CANCELLED', updated_at = NOW()
+          WHERE id = $1`,
+        [allocation.id]
+      );
+
+      await insertEvent(client, {
+        shelterId: allocation.shelterId,
+        groupId: group.id,
+        kind: "CANCELLED",
+        peopleDelta: 0,
+        note: `${group.groupCode} declined the beds here — reassignment needed.`,
+      });
+    }
+
+    await setGroupStatus(client, group.id, "DECLINED");
+  });
+
+  const updated = await findGroup(group.id);
+
+  if (updated) {
+    announceShelter(updated.district, undefined, updated.groupCode, {
+      message: `${updated.groupCode} declined the assigned shelter — the district can reassign.`,
+    });
+  }
+
+  return updated ?? null;
+}
+
+/**
+ * Read a mission's shelter group back for the officer's board without creating or
+ * correcting anything — a pure status read, so opening the card never raises a
+ * request on its own.
+ */
+export async function getGroupForDispatch(
+  dispatchId: string
+): Promise<EvacueeGroup | null> {
+  return findGroupByDispatch(dispatchId);
 }
 
 export async function officerGroups(

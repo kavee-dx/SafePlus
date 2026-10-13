@@ -6,6 +6,7 @@ import {
   type IncidentDetail,
   type IncidentSummary,
   type RescueDispatch,
+  type ShelterAssignment,
   CLOSED_DISPATCH_STATUSES,
   DISPATCH_STATUSES,
   allowedNextStatuses,
@@ -25,6 +26,7 @@ import {
   listDispatchRollsByIncident,
   listDispatchRollsByTeam,
   listDispatchRollsForOfficer,
+  findIncidentPhotoUrl,
   listEvidence,
   listVerifiedIncidents,
   recordAcceptance,
@@ -33,6 +35,7 @@ import {
   releaseTeamIfIdle,
   clearClosure,
 } from "../repositories/kaveesha-dispatchRepository";
+import { findPendingAssignmentForDispatch } from "../repositories/kaveesha-shelterRepository";
 import {
   type Recommendation,
   recommendTeams,
@@ -45,7 +48,11 @@ import { publishDispatchEvent } from "./kaveesha-dispatchEvents";
 import type { EvacueeGroup } from "../models/kaveesha-shelter";
 import {
   createGroupForCompletedDispatch,
+  ensureGroupForDispatch,
+  getGroupForDispatch,
   markGroupArrivalReported,
+  markGroupInTransit,
+  markGroupRejectedByLeader,
 } from "./kaveesha-shelterService";
 import type { PushOutcome } from "./kaveesha-leaderPushService";
 import { findOfficerAssignment } from "../repositories/kaveesha-rescueTeamRepository";
@@ -527,12 +534,143 @@ export async function leaderReportsShelterArrival(
   return { dispatch, group };
 }
 
+/**
+ * The leader accepts the shelter plan the officer built for the people they
+ * rescued and starts moving them there. Same ownership checks as the arrival
+ * report — a leader acts only on their own team's mission. The group is resolved
+ * from the dispatch, and only an ALLOCATED plan moves to IN_TRANSIT (the shelter
+ * service guards the transition, so a repeat tap is a harmless no-op).
+ */
+export async function leaderAcksShelterAssignment(
+  userId: string,
+  dispatchId?: string
+): Promise<{ dispatch: RescueDispatch; group: EvacueeGroup | null }> {
+  const team = await findTeamByUserId(userId);
+
+  if (!team) {
+    throw new ApiError(404, "No rescue team is attached to this account yet.");
+  }
+
+  const dispatch = dispatchId
+    ? await requireDispatch(dispatchId)
+    : await findLiveDispatchForTeam(team.teamId);
+
+  if (!dispatch) {
+    throw new ApiError(404, "This team has no mission to update.");
+  }
+
+  if (dispatch.teamId !== team.teamId) {
+    throw new ApiError(
+      403,
+      "That mission belongs to another team. A leader accepts only their own."
+    );
+  }
+
+  const group = await markGroupInTransit(dispatch.id);
+
+  return { dispatch, group };
+}
+
+/**
+ * The leader declines the shelter plan the officer built — those beds do not
+ * work for the people they are bringing back. Same ownership checks as the accept
+ * (a leader acts only on their own team's mission). Declining frees the reserved
+ * beds and puts the group back to DECLINED, so the officer sees it and can
+ * reassign; the mission itself is untouched.
+ */
+export async function leaderRejectsShelterAssignment(
+  userId: string,
+  dispatchId?: string
+): Promise<{ dispatch: RescueDispatch; group: EvacueeGroup | null }> {
+  const team = await findTeamByUserId(userId);
+
+  if (!team) {
+    throw new ApiError(404, "No rescue team is attached to this account yet.");
+  }
+
+  const dispatch = dispatchId
+    ? await requireDispatch(dispatchId)
+    : await findLiveDispatchForTeam(team.teamId);
+
+  if (!dispatch) {
+    throw new ApiError(404, "This team has no mission to update.");
+  }
+
+  if (dispatch.teamId !== team.teamId) {
+    throw new ApiError(
+      403,
+      "That mission belongs to another team. A leader declines only their own."
+    );
+  }
+
+  const group = await markGroupRejectedByLeader(dispatch.id);
+
+  return { dispatch, group };
+}
+
+/**
+ * An officer raises (or reopens) the shelter request for their own district's
+ * mission, so beds can be reserved before the rescue is even closed. The mission
+ * must belong to the officer's district, and a team that declined or was stood
+ * down has nobody to shelter. Returns the group the allocation desk works on —
+ * the same group a completed mission would have raised, so there is never a
+ * second one for the same dispatch.
+ */
+export async function requestShelterForDispatch(
+  context: OfficerContext,
+  dispatchId: string,
+  peopleCount?: number
+): Promise<EvacueeGroup> {
+  const roll = await findDispatchRoll(dispatchId);
+
+  if (!roll) {
+    throw new ApiError(404, "No mission with that reference.");
+  }
+
+  assertIncidentInScope(context, roll.district);
+
+  if (roll.status === "DECLINED" || roll.status === "CANCELLED") {
+    throw new ApiError(
+      409,
+      `Mission ${roll.dispatchCode} ended at ${roll.status.toLowerCase()}; there is nobody to shelter.`
+    );
+  }
+
+  return ensureGroupForDispatch(roll, peopleCount);
+}
+
+/**
+ * An officer reads the shelter handoff currently attached to one of their
+ * district's missions — how the group is faring, which beds it holds and whether
+ * the team has accepted or declined — without raising or correcting anything. A
+ * mission with no group is a null answer, so the card shows no handoff rather
+ * than inventing one.
+ */
+export async function readShelterGroupForDispatch(
+  context: OfficerContext,
+  dispatchId: string
+): Promise<EvacueeGroup | null> {
+  const roll = await findDispatchRoll(dispatchId);
+
+  if (!roll) {
+    throw new ApiError(404, "No mission with that reference.");
+  }
+
+  assertIncidentInScope(context, roll.district);
+
+  return getGroupForDispatch(dispatchId);
+}
+
 export interface LeaderWorkspace {
   team: { id: string; name: string; availability: string };
   active: DispatchRoll | null;
   history: DispatchRoll[];
   nextStatuses: DispatchStatus[];
 }
+
+/* The shelter handoff now happens during RETURNING — while the mission is still
+ * live — so a COMPLETED mission never needs to stay pinned on the leader's board;
+ * it drops straight to history. */
 
 export async function leaderWorkspace(userId: string): Promise<LeaderWorkspace> {
   const team = await findTeamByUserId(userId);
@@ -543,6 +681,25 @@ export async function leaderWorkspace(userId: string): Promise<LeaderWorkspace> 
 
   const rolls = await listDispatchRollsByTeam(team.teamId);
   const active = rolls.find((roll) => isLiveDispatch(roll.status)) ?? null;
+
+  const empty: { groupStatus: string | null; assignments: ShelterAssignment[] } = {
+    groupStatus: null,
+    assignments: [],
+  };
+  const handoff = active
+    ? await findPendingAssignmentForDispatch(active.id).catch(() => empty)
+    : empty;
+
+  // Paint the scene on the leader's phone: the incident photo and, once an
+  // officer has allocated beds, the shelter(s) to drive to. Only on the one shown
+  // mission, so the board payload stays light for history.
+  if (active) {
+    const photo = await findIncidentPhotoUrl(active.reportId).catch(() => null);
+
+    if (photo) active.thumbnailUrl = photo;
+    if (handoff.groupStatus) active.groupStatus = handoff.groupStatus;
+    if (handoff.assignments.length) active.shelterAssignment = handoff.assignments;
+  }
 
   return {
     team: { id: team.teamId, name: team.teamName, availability: team.availability },
@@ -582,7 +739,7 @@ async function moveToStatus(
     throw new ApiError(404, "That mission is no longer on the board.");
   }
 
-  if (status === "COMPLETED" && outcome) {
+  if ((status === "RETURNING" || status === "COMPLETED") && outcome) {
     await recordOutcome(dispatchId, outcome);
   }
 
@@ -604,11 +761,13 @@ async function moveToStatus(
     `${roll.teamName} · ${roll.dispatchCode} is now ${roll.status.toLowerCase().replace(/_/g, " ")}.`
   );
 
-  // A completed rescue leaves people who need a bed. Hand them to the shelter
-  // desk as one group, idempotently, so a replayed stage never double-counts.
-  // Best-effort by design: a shelter hiccup must not fail the mission stage that
-  // is already committed, and the desk still sees the mission on its board.
-  if (status === "COMPLETED" && outcome) {
+  // A rescue that has brought people back leaves them needing a bed. The count is
+  // taken at RETURNING (the guided step straight before completion) so the district
+  // can start matching shelters while the team is still driving — and again on
+  // COMPLETED as a safety net. Idempotent on the dispatch, so a replayed stage or
+  // the completed pass never double-counts. Best-effort by design: a shelter
+  // hiccup must not fail the mission stage that is already committed.
+  if ((status === "RETURNING" || status === "COMPLETED") && outcome) {
     try {
       await createGroupForCompletedDispatch(roll);
     } catch (error: unknown) {

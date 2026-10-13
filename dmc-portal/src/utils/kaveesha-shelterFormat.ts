@@ -183,6 +183,8 @@ export function groupStatusMeta(
       return { label: "Partially arrived", chip: "kdx-chip-warn" };
     case "CANCELLED":
       return { label: "Cancelled", chip: "" };
+    case "DECLINED":
+      return { label: "Declined by team", chip: "kdx-chip-alert" };
     default:
       return { label: status.replace(/_/g, " ").toLowerCase(), chip: "" };
   }

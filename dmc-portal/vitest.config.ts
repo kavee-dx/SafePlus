@@ -8,5 +8,22 @@ export default defineConfig({
     globals: true,
     css: false,
     restoreMocks: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "lcov"],
+      reportsDirectory: "coverage",
+      include: [
+        "src/constants/kaveesha-disasterKinds.ts",
+        "src/constants/kaveesha-rescueTeamOptions.ts",
+        "src/utils/kaveesha-dispatchFormat.ts",
+        "src/utils/kaveesha-shelterFormat.ts",
+      ],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
+    },
   },
 });

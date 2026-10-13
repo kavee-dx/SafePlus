@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   LeaderApiError,
   type AvailabilityState,
+  type LeaderNotification,
   type TeamDashboard,
   fetchTeamDashboard,
   updateAvailability,
@@ -51,12 +52,28 @@ const OPTIONS: {
   },
 ];
 
-export default function KaveeshaLeaderTeamScreen({ token }: { token: string }) {
+interface TeamScreenProps {
+  token: string;
+  /** The standing message tray, handed down from the shell so the account page
+   *  never makes a second request for what the header already loaded. */
+  notifications: LeaderNotification[];
+  onOpenNotifications: () => void;
+  onOpen: (item: LeaderNotification) => void;
+}
+
+export default function KaveeshaLeaderTeamScreen({
+  token,
+  notifications,
+  onOpenNotifications,
+  onOpen,
+}: TeamScreenProps) {
   const insets = useSafeAreaInsets();
   const [dashboard, setDashboard] = useState<TeamDashboard | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<AvailabilityState | null>(null);
+
+  const unreadCount = notifications.filter((item) => !item.isRead).length;
 
   const load = useCallback(() => {
     setReady(false);
@@ -187,6 +204,53 @@ export default function KaveeshaLeaderTeamScreen({ token }: { token: string }) {
         </View>
       </View>
 
+      {/* Notifications — the messages the district has handed this team */}
+      <View className="rounded-3xl bg-safeplus-white border border-safeplus-border p-4 mb-4">
+        <View className="flex-row items-center justify-between mb-3">
+          <View className="flex-row items-center gap-2">
+            <Ionicons name="notifications-outline" size={16} color="#1570EF" />
+            <Text className="text-[11px] font-extrabold uppercase tracking-wide text-safeplus-muted">
+              Notifications
+            </Text>
+            {unreadCount > 0 && (
+              <View className="min-w-[18px] h-[18px] px-1 rounded-full bg-safeplus-red items-center justify-center">
+                <Text className="text-[10px] font-extrabold text-white">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            )}
+          </View>
+          {notifications.length > 3 && (
+            <Pressable
+              onPress={onOpenNotifications}
+              accessibilityRole="button"
+              hitSlop={8}
+            >
+              <Text className="text-[12px] font-extrabold text-safeplus-blue">
+                View all
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
+        {notifications.length === 0 ? (
+          <Text className="text-[13px] text-safeplus-muted">
+            No messages yet. When the district tasks your team, it will appear
+            here.
+          </Text>
+        ) : (
+          <View className="gap-2.5">
+            {notifications.slice(0, 3).map((item) => (
+              <NotificationItem
+                key={item.id}
+                item={item}
+                onPress={() => onOpen(item)}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+
       {error && (
         <View className="rounded-2xl bg-safeplus-lightRed border border-safeplus-red p-3.5 mb-4">
           <Text className="text-[13px] font-semibold text-safeplus-red">{error}</Text>
@@ -288,5 +352,83 @@ function Row({
       <Text className="text-[13px] text-safeplus-muted w-24">{label}</Text>
       <Text className="flex-1 text-[13.5px] font-semibold text-safeplus-navy">{value}</Text>
     </View>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * One message on the account page. Colour and icon carry the kind so a leader
+ * reads "new tasking" before the words; the whole row is a button that marks it
+ * read, since opening is the intent that clears the badge.
+ * ------------------------------------------------------------------ */
+
+function present(type: string): { glyph: keyof typeof Ionicons.glyphMap; tone: string; wash: string } {
+  switch (type) {
+    case "TEAM_TASKED":
+      return { glyph: "radio-outline", tone: "#D92D20", wash: "#FEF3F2" };
+    case "MISSION_STOOD_DOWN":
+      return { glyph: "stop-circle-outline", tone: "#667085", wash: "#F2F4F7" };
+    case "WARNING_CREATED":
+      return { glyph: "alert-circle-outline", tone: "#F79009", wash: "#FFFAEB" };
+    default:
+      return { glyph: "notifications-outline", tone: "#1570EF", wash: "#EFF4FF" };
+  }
+}
+
+function timeAgo(value: string): string {
+  const at = new Date(value).getTime();
+
+  if (!Number.isFinite(at)) return "";
+
+  const mins = Math.max(0, Math.round((Date.now() - at) / 60000));
+
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+
+  const hours = Math.round(mins / 60);
+
+  if (hours < 24) return `${hours} hr ago`;
+
+  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function NotificationItem({
+  item,
+  onPress,
+}: {
+  item: LeaderNotification;
+  onPress: () => void;
+}) {
+  const look = present(item.type);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      className={
+        item.isRead
+          ? "flex-row items-center gap-3 rounded-2xl border border-safeplus-border p-3 active:opacity-90"
+          : "flex-row items-center gap-3 rounded-2xl border-2 border-safeplus-blue bg-safeplus-white p-3 active:opacity-90"
+      }
+    >
+      <View
+        className="w-9 h-9 rounded-full items-center justify-center"
+        style={{ backgroundColor: look.wash }}
+      >
+        <Ionicons name={look.glyph} size={18} color={look.tone} />
+      </View>
+
+      <View className="flex-1">
+        <Text className="text-[13.5px] font-extrabold text-safeplus-navy" numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text className="text-[12px] text-safeplus-muted mt-0.5" numberOfLines={2}>
+          {item.message}
+        </Text>
+      </View>
+
+      <Text className="text-[10.5px] font-semibold text-safeplus-muted self-start mt-0.5">
+        {timeAgo(item.createdAt)}
+      </Text>
+    </Pressable>
   );
 }

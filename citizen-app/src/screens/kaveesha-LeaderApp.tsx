@@ -6,10 +6,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LoginAccount } from "../services/dildhara-authApi";
 import {
   LeaderApiError,
+  type LeaderNotification,
   type LeaderWorkspace,
   type StageUpdate,
+  ackShelterAssignment,
   advanceStage,
+  fetchMyNotifications,
   fetchMyWorkspace,
+  markNotificationRead,
+  rejectShelterAssignment,
   reportShelterArrival,
 } from "../services/kaveesha-leaderApi";
 import {
@@ -19,6 +24,7 @@ import {
 } from "../services/kaveesha-leaderNotifications";
 import KaveeshaLeaderMissionScreen from "./kaveesha-LeaderMissionScreen";
 import KaveeshaLeaderHistoryScreen from "./kaveesha-LeaderHistoryScreen";
+import KaveeshaLeaderNotificationsScreen from "./kaveesha-LeaderNotificationsScreen";
 import KaveeshaLeaderTeamScreen from "./kaveesha-LeaderTeamScreen";
 
 /* ------------------------------------------------------------------ *
@@ -32,7 +38,7 @@ import KaveeshaLeaderTeamScreen from "./kaveesha-LeaderTeamScreen";
  * mission is live.
  * ------------------------------------------------------------------ */
 
-type Tab = "mission" | "history" | "team";
+type Tab = "mission" | "notifications" | "history" | "team";
 
 interface LeaderAppProps {
   token: string;
@@ -54,6 +60,12 @@ export default function KaveeshaLeaderApp({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The standing message tray. Read once so the header badge is honest before
+  // the leader ever taps it, and refreshed on the spot when it opens.
+  const [notifications, setNotifications] = useState<LeaderNotification[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifError, setNotifError] = useState<string | null>(null);
+
   const load = useCallback(() => {
     fetchMyWorkspace(token)
       .then((data) => {
@@ -67,6 +79,58 @@ export default function KaveeshaLeaderApp({
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadNotifications = useCallback(() => {
+    setNotifLoading(true);
+
+    fetchMyNotifications(token)
+      .then((feed) => {
+        setNotifications(feed.items);
+        setNotifError(null);
+      })
+      .catch((cause: LeaderApiError) => setNotifError(cause.message))
+      .finally(() => setNotifLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  /* Opening the tray is a footer-tab switch that pulls a fresh copy; a message
+     the leader taps is marked read on the server and flipped in place so the
+     badge drops without a full reload. */
+  const openNotifications = useCallback(() => {
+    setTab("notifications");
+    loadNotifications();
+  }, [loadNotifications]);
+
+  const markRead = useCallback(
+    (id: string) => {
+      setNotifications((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, isRead: true } : item))
+      );
+
+      markNotificationRead(token, id).catch(() => {
+        // The optimistic flip stands; a lost write shows again on next open.
+      });
+    },
+    [token]
+  );
+
+  /* One tap on a message: mark it read (its colour fades) and open the mission it
+     points at. A leader holds at most one live mission, so the incident section is
+     the Mission tab; once it is stood down there is no live dispatch and the tap
+     lands on History instead. */
+  const openNotification = useCallback(
+    (item: LeaderNotification) => {
+      if (!item.isRead) markRead(item.id);
+
+      const live = workspace?.active && workspace.active.status !== "COMPLETED";
+
+      setTab(live ? "mission" : "history");
+    },
+    [markRead, workspace]
+  );
 
   /* Ask for notification permission and register this handset once, so the
      district's tasking push has somewhere to land. Safe to repeat; it never
@@ -93,7 +157,10 @@ export default function KaveeshaLeaderApp({
     void leadLocalAlert(
       "New tasking",
       `You have been tasked as ${dispatchCode}. Open SafePlus to respond.`
-    ).finally(() => load());
+    ).finally(() => {
+      load();
+      loadNotifications();
+    });
   });
 
   const submitStage = async (update: StageUpdate) => {
@@ -121,9 +188,31 @@ export default function KaveeshaLeaderApp({
 
   /* The leader's "we reached the shelter" tap. It flags the group on the server;
      we refresh so the board reflects any stage/group change, and hand the server's
-     own message back to the card. Errors bubble to the card to show in place. */
+     own message back to the card. Errors bubble to the card to show in place. Once
+     the mission is completed there is no live dispatch, so the board's own mission
+     id is passed — "current" would no longer resolve on the server. */
   const reportArrival = async (): Promise<string> => {
-    const message = await reportShelterArrival(token);
+    const message = await reportShelterArrival(token, workspace?.active?.id);
+
+    load();
+
+    return message;
+  };
+
+  /* The leader accepts the shelter the district assigned and starts moving the
+     group there (group -> IN_TRANSIT). Same id rule as the arrival report. */
+  const ackShelter = async (): Promise<string> => {
+    const message = await ackShelterAssignment(token, workspace?.active?.id);
+
+    load();
+
+    return message;
+  };
+
+  /* The leader declines the assigned shelter (it does not work for the people
+     they have); the group goes back to the district to reassign. Same id rule. */
+  const rejectShelter = async (): Promise<string> => {
+    const message = await rejectShelterAssignment(token, workspace?.active?.id);
 
     load();
 
@@ -131,6 +220,7 @@ export default function KaveeshaLeaderApp({
   };
 
   const availabilityTone = toneForAvailability(workspace?.team.availability);
+  const unreadNotifications = notifications.filter((item) => !item.isRead).length;
 
   if (!ready) {
     return (
@@ -171,6 +261,8 @@ export default function KaveeshaLeaderApp({
     );
   }
 
+  /* The tray is a footer tab, so it shares the header and the bottom bar with
+     every other surface rather than covering them. */
   return (
     <View className="flex-1 bg-safeplus-background">
       {/* Header */}
@@ -193,13 +285,33 @@ export default function KaveeshaLeaderApp({
           </View>
         </View>
 
-        <Pressable
-          onPress={onSignOut}
-          accessibilityRole="button"
-          className="w-10 h-10 rounded-full bg-safeplus-background items-center justify-center active:opacity-80"
-        >
-          <Ionicons name="log-out-outline" size={20} color="#667085" />
-        </Pressable>
+        <View className="flex-row items-center gap-2">
+          <Pressable
+            onPress={openNotifications}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            className="w-10 h-10 rounded-full bg-safeplus-background items-center justify-center active:opacity-80"
+          >
+            <View>
+              <Ionicons name="notifications-outline" size={20} color="#667085" />
+              {unreadNotifications > 0 && (
+                <View className="absolute -right-1.5 -top-1 min-w-[16px] h-4 px-1 rounded-full bg-safeplus-red items-center justify-center">
+                  <Text className="text-[9px] font-extrabold text-white">
+                    {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </Pressable>
+
+          <Pressable
+            onPress={onSignOut}
+            accessibilityRole="button"
+            className="w-10 h-10 rounded-full bg-safeplus-background items-center justify-center active:opacity-80"
+          >
+            <Ionicons name="log-out-outline" size={20} color="#667085" />
+          </Pressable>
+        </View>
       </View>
 
       {/* A soft error line that never covers the work */}
@@ -217,12 +329,30 @@ export default function KaveeshaLeaderApp({
             busy={busy}
             onStage={submitStage}
             onReportArrival={reportArrival}
+            onAckShelter={ackShelter}
+            onRejectShelter={rejectShelter}
+          />
+        )}
+        {tab === "notifications" && (
+          <KaveeshaLeaderNotificationsScreen
+            items={notifications}
+            loading={notifLoading}
+            error={notifError}
+            onOpen={openNotification}
+            onRetry={loadNotifications}
           />
         )}
         {tab === "history" && (
           <KaveeshaLeaderHistoryScreen history={workspace.history} />
         )}
-        {tab === "team" && <KaveeshaLeaderTeamScreen token={token} />}
+        {tab === "team" && (
+          <KaveeshaLeaderTeamScreen
+            token={token}
+            notifications={notifications}
+            onOpenNotifications={openNotifications}
+            onOpen={openNotification}
+          />
+        )}
       </View>
 
       {/* Bottom tab bar */}
@@ -236,6 +366,14 @@ export default function KaveeshaLeaderApp({
           icon="navigate-outline"
           label="Mission"
           badge={workspace.active && workspace.active.status !== "COMPLETED" ? 1 : 0}
+          onPress={setTab}
+        />
+        <TabButton
+          tab="notifications"
+          current={tab}
+          icon="notifications-outline"
+          label="Alerts"
+          badge={unreadNotifications}
           onPress={setTab}
         />
         <TabButton

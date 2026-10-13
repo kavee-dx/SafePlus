@@ -208,6 +208,26 @@ export async function listEvidence(
   }));
 }
 
+/**
+ * The one photo a leader should see first — the earliest still image on the
+ * incident. Read as a single LIMIT 1 rather than the full evidence list so the
+ * active-mission payload carries one thumbnail, not every base64 blob.
+ */
+export async function findIncidentPhotoUrl(
+  reportId: string
+): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT file_url
+       FROM report_attachments
+      WHERE report_id = $1 AND file_kind = 'PHOTO'
+      ORDER BY created_at ASC
+      LIMIT 1`,
+    [reportId]
+  );
+
+  return result.rows[0] ? text(result.rows[0].file_url) : null;
+}
+
 export interface TeamCandidateRow {
   teamId: string;
   teamName: string;
@@ -957,6 +977,36 @@ export async function clearLeaderPushToken(userId: string): Promise<void> {
   await pool.query(
     "UPDATE users SET device_token = NULL WHERE id = $1::uuid",
     [userId]
+  );
+}
+
+/**
+ * Write a message that stays on the leader's phone.
+ *
+ * A push is a banner that fades; this row is what the app's notification list
+ * reads back, so a tasking that landed while the handset had no signal is still
+ * there when the leader opens the app. Own insert rather than the portal helper
+ * so the leader-only types do not force the shared NotificationType enum open.
+ */
+export async function insertLeaderNotification(entry: {
+  recipientUserId: string;
+  type: string;
+  title: string;
+  message: string;
+  reportId?: string | null;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO notifications (
+        recipient_id, type, title, message, related_report_id
+     )
+     VALUES ($1::uuid, $2, $3, $4, $5::uuid)`,
+    [
+      entry.recipientUserId,
+      entry.type,
+      entry.title,
+      entry.message,
+      entry.reportId ?? null,
+    ]
   );
 }
 

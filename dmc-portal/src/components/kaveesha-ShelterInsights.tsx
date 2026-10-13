@@ -1,5 +1,13 @@
-import { useMemo, useState } from "react";
-import { ChevronDown, Lock, Mail, MapPin, PencilLine, Users } from "lucide-react";
+import { useMemo, useState, type CSSProperties } from "react";
+import {
+  Building2,
+  ChevronDown,
+  Lock,
+  Mail,
+  MapPin,
+  PencilLine,
+  Users,
+} from "lucide-react";
 
 import { Colors } from "../constants/theme";
 import type {
@@ -26,6 +34,23 @@ import { CapacityDonutChart, OccupancyTrendChart } from "./kaveesha-charts";
  * only in their own district while a manager acts inside the shelters they run —
  * so this piece stays a pure, reusable read surface.
  * ------------------------------------------------------------------ */
+
+/**
+ * A status's colour, handed to the sheet as custom properties so one rule can
+ * tint the border, the soft fill, the count pill and the occupancy bar without
+ * a colour-mix that leans on the newest browser features. The alpha suffixes are
+ * the same hex+alpha convention the rest of the console already uses.
+ */
+function toneVars(color: string): CSSProperties {
+  return {
+    "--tone": color,
+    "--tone-soft": `${color}14`,
+    "--tone-tint": `${color}12`,
+    "--tone-ring": `${color}1A`,
+    "--tone-bar": `${color}33`,
+    "--tone-line": `${color}66`,
+  } as CSSProperties;
+}
 
 export default function KaveeshaShelterInsights({
   analytics,
@@ -130,26 +155,19 @@ export default function KaveeshaShelterInsights({
             alignItems: "baseline",
             justifyContent: "space-between",
             gap: 12,
-            marginBottom: 10,
+            marginBottom: 12,
+            flexWrap: "wrap",
           }}
         >
-          <div className="kdx-panel-title" style={{ fontSize: 14 }}>
-            Shelter status
-          </div>
+          <div className="ksh-band-title">Shelter status</div>
           <span style={{ fontSize: 12, color: Colors.muted }}>
             Pick a status to see its shelters · Manage opens a shelter on its own
           </span>
         </div>
 
-        {/* The four small status boxes — a filter for the board below. */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-            gap: 12,
-            marginBottom: 14,
-          }}
-        >
+        {/* The four status boxes are a triage line: the chosen one is lit in its
+            own colour, so the eye lands on what needs attention first. */}
+        <div className="ksh-filters" style={{ marginBottom: 16 }}>
           {STATUS_ORDER.map((status) => {
             const meta = STATUS_META[status];
             const count = analytics.shelters.filter((s) => s.status === status).length;
@@ -161,80 +179,27 @@ export default function KaveeshaShelterInsights({
                 type="button"
                 onClick={() => setPick({ district: current, status })}
                 aria-pressed={active}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
-                  padding: "12px 14px",
-                  borderRadius: 12,
-                  border: `1.5px solid ${active ? meta.color : Colors.border}`,
-                  background: active ? `${meta.color}12` : Colors.white,
-                  boxShadow: active ? `0 0 0 3px ${meta.color}1A` : "none",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontFamily: "inherit",
-                  transition: "border-color 120ms ease, background 120ms ease",
-                }}
+                className={`ksh-filter${active ? " ksh-filter-on" : ""}`}
+                style={toneVars(meta.color)}
               >
-                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 999,
-                      background: meta.color,
-                      display: "inline-block",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span style={{ fontWeight: 800, fontSize: 13, color: active ? meta.color : Colors.navy }}>
-                    {meta.label}
-                  </span>
-                  <span
-                    style={{
-                      marginLeft: "auto",
-                      fontWeight: 800,
-                      fontSize: 13,
-                      color: meta.color,
-                      background: `${meta.color}14`,
-                      borderRadius: 999,
-                      padding: "1px 9px",
-                    }}
-                  >
-                    {count}
-                  </span>
+                <span className="ksh-filter-top">
+                  <span className="ksh-filter-dot" />
+                  <span className="ksh-filter-label">{meta.label}</span>
+                  <span className="ksh-filter-count">{count}</span>
                 </span>
-                <span style={{ fontSize: 11, color: Colors.muted, lineHeight: 1.4 }}>
-                  {meta.hint}
-                </span>
+                <span className="ksh-filter-hint">{meta.hint}</span>
               </button>
             );
           })}
         </div>
 
-        {/* The selected status's shelters, rendered big in its own colour. */}
         {activeShelters.length === 0 ? (
-          <div
-            style={{
-              border: `1.5px dashed ${Colors.border}`,
-              borderRadius: 12,
-              padding: "26px 16px",
-              textAlign: "center",
-              fontSize: 13,
-              color: Colors.muted,
-              background: Colors.white,
-            }}
-          >
-            No shelters are {activeMeta.label.toLowerCase()} right now.
+          <div className="ksh-quiet">
+            <Building2 size={26} />
+            <div>No shelters are {activeMeta.label.toLowerCase()} right now.</div>
           </div>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-              gap: 14,
-            }}
-          >
+          <div className="ksh-cards">
             {activeShelters.map((shelter) => (
               <StatusShelterCard
                 key={shelter.id}
@@ -268,132 +233,81 @@ function StatusShelterCard({
   onManage: () => void;
 }) {
   const meta = STATUS_META[shelter.status];
+  const occ = occupancyPct(shelter);
+  const claimed = claimedPct(shelter);
 
   return (
-    <div
-      className="kdx-panel"
-      style={{ borderTop: `3px solid ${meta.color}`, overflow: "visible" }}
-    >
-      <div className="kdx-panel-head" style={{ alignItems: "flex-start" }}>
+    <div className="ksh-card" style={toneVars(meta.color)}>
+      <span className="ksh-card-rail" />
+
+      <div className="ksh-card-head">
         <div style={{ minWidth: 0 }}>
-          <div className="kdx-panel-title" style={{ fontSize: 14 }}>
-            {shelter.name}
-          </div>
-          <div className="kdx-panel-sub">
+          <div className="ksh-card-name">{shelter.name}</div>
+          <div className="ksh-card-code">
             {shelter.shelterCode} · {shelter.district}
           </div>
         </div>
-        <span
-          className="kdx-chip"
-          style={{ color: meta.color, background: `${meta.color}14`, flexShrink: 0 }}
-        >
-          {meta.label}
-        </span>
+        <span className="ksh-card-chip">{meta.label}</span>
       </div>
 
-      <div className="kdx-panel-body" style={{ display: "grid", gap: 12 }}>
-        <div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontSize: 11,
-              fontWeight: 800,
-              color: Colors.muted,
-              textTransform: "uppercase",
-              letterSpacing: "0.03em",
-              marginBottom: 5,
-            }}
-          >
-            <span>Occupied {occupancyPct(shelter)}%</span>
-            <span>
-              {shelter.confirmedOccupancy} / {shelter.maxCapacity}
-            </span>
-          </div>
-          <div className="kdx-bar-track" style={{ position: "relative", height: 10 }}>
-            <div
-              className="kdx-bar-fill"
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: `${claimedPct(shelter)}%`,
-                background: `${meta.color}33`,
-              }}
-            />
-            <div
-              className="kdx-bar-fill"
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: `${occupancyPct(shelter)}%`,
-                background: meta.color,
-              }}
-            />
-          </div>
+      <div>
+        <div className="ksh-occ-top">
+          <span className="ksh-occ-pct">Occupied {occ}%</span>
+          <span className="ksh-occ-frac">
+            {shelter.confirmedOccupancy} / {shelter.maxCapacity}
+          </span>
         </div>
-
-        <div className="kdx-facts" style={{ marginBottom: 0 }}>
-          <div className="kdx-fact">
-            <div className="kdx-fact-label">
-              <Users size={12} /> Inside
-            </div>
-            <div className="kdx-fact-value">{shelter.confirmedOccupancy}</div>
-          </div>
-          <div className="kdx-fact">
-            <div className="kdx-fact-label">Inbound</div>
-            <div className="kdx-fact-value">{shelter.pendingArrivals}</div>
-          </div>
-          <div className="kdx-fact">
-            <div className="kdx-fact-label">Room left</div>
-            <div
-              className="kdx-fact-value"
-              style={{
-                color: shelter.remainingAllocatable > 0 ? Colors.success : Colors.red,
-              }}
-            >
-              {shelter.remainingAllocatable}
-            </div>
-          </div>
+        {/* The inbound overlay is drawn first and the confirmed fill on top, so
+            the darker part is who is genuinely inside and the paler tip is who
+            is still on the way. */}
+        <div className="ksh-occ-track">
+          <div className="ksh-occ-inbound" style={{ width: `${claimed}%` }} />
+          <div className="ksh-occ-now" style={{ width: `${occ}%` }} />
         </div>
+      </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          {shelter.managers.length === 0 ? (
-            <span style={{ fontSize: 12, color: Colors.muted, fontStyle: "italic" }}>
-              No manager assigned yet
-            </span>
-          ) : (
-            shelter.managers.slice(0, 2).map((manager) => (
-              <span
-                key={manager.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: 12,
-                  color: Colors.muted,
-                  minWidth: 0,
-                }}
-              >
-                <Mail size={12} style={{ flexShrink: 0 }} />
-                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {manager.fullName}
-                  {manager.email ? ` · ${manager.email}` : ""}
-                </span>
+      <div className="ksh-figs">
+        <div className="ksh-fig">
+          <span className="ksh-fig-label">
+            <Users size={11} /> Inside
+          </span>
+          <span className="ksh-fig-value">{shelter.confirmedOccupancy}</span>
+        </div>
+        <div className="ksh-fig">
+          <span className="ksh-fig-label">Inbound</span>
+          <span className="ksh-fig-value">{shelter.pendingArrivals}</span>
+        </div>
+        <div
+          className={`ksh-fig ${
+            shelter.remainingAllocatable > 0 ? "ksh-fig-free" : "ksh-fig-full"
+          }`}
+        >
+          <span className="ksh-fig-label">Room left</span>
+          <span className="ksh-fig-value">{shelter.remainingAllocatable}</span>
+        </div>
+      </div>
+
+      <div className="ksh-card-mgr">
+        {shelter.managers.length === 0 ? (
+          <span className="ksh-mgr-none">No manager assigned yet</span>
+        ) : (
+          shelter.managers.slice(0, 2).map((manager) => (
+            <span key={manager.id} className="ksh-mgr-line">
+              <Mail size={12} />
+              <span>
+                {manager.fullName}
+                {manager.email ? ` · ${manager.email}` : ""}
               </span>
-            ))
-          )}
-        </div>
+            </span>
+          ))
+        )}
+      </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button type="button" className="kdx-btn kdx-btn-sm" onClick={onManage}>
-            {editable ? <PencilLine size={13} /> : <Lock size={13} />}
-            Manage
-          </button>
-        </div>
+      <div className="ksh-card-foot">
+        <button type="button" className="kdx-btn kdx-btn-sm" onClick={onManage}>
+          {editable ? <PencilLine size={13} /> : <Lock size={13} />}
+          Manage
+        </button>
       </div>
     </div>
   );
@@ -413,43 +327,12 @@ function DistrictSwitcher({
   const viewingOwnDefault = current !== "all";
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        flexWrap: "wrap",
-      }}
-    >
-      <label
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          fontSize: 12,
-          fontWeight: 700,
-          color: Colors.navy,
-        }}
-      >
+    <div className="ksh-switch">
+      <label className="ksh-switch-label">
         <MapPin size={14} />
         District
-        <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-          <select
-            value={current}
-            onChange={(e) => onSelect(e.target.value)}
-            style={{
-              appearance: "none",
-              WebkitAppearance: "none",
-              padding: "6px 30px 6px 12px",
-              borderRadius: 8,
-              border: `1px solid ${Colors.border}`,
-              background: Colors.white,
-              fontSize: 13,
-              fontWeight: 700,
-              color: Colors.navy,
-              cursor: "pointer",
-            }}
-          >
+        <span className="ksh-switch-select">
+          <select value={current} onChange={(e) => onSelect(e.target.value)}>
             <option value="all">All districts</option>
             {districts.map((d) => (
               <option key={d} value={d}>
@@ -459,12 +342,12 @@ function DistrictSwitcher({
           </select>
           <ChevronDown
             size={14}
-            style={{ position: "absolute", right: 9, pointerEvents: "none", color: Colors.muted }}
+            style={{ position: "absolute", right: 11, pointerEvents: "none", color: Colors.muted }}
           />
         </span>
       </label>
 
-      <span style={{ fontSize: 12, color: Colors.muted }}>
+      <span className="ksh-switch-note">
         {current === "all"
           ? "Reading every district. You can only change shelters in your own."
           : viewingOwnDefault

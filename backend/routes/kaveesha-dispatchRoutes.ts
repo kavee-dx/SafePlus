@@ -14,6 +14,10 @@ import {
   stages,
   status,
   shelterArrival,
+  shelterAck,
+  shelterGroup,
+  shelterReject,
+  shelterRequest,
   stream,
 } from "../controllers/kaveesha-dispatchController";
 import { requireAuth } from "../middlewares/dildhara-requireAuth";
@@ -43,6 +47,11 @@ router.post("/incidents/:reportId/close", requireDistrictBoard, close);
 router.post("/incidents/:reportId/reopen", requireDistrictBoard, reopen);
 router.get("/dispatches", requireDistrictBoard, dispatches);
 router.post("/dispatches/:id/cancel", requireDistrictBoard, cancel);
+// Officer: raise a shelter need for a mission before it is completed. Idempotent,
+// so the allocation desk can open on a live mission with real data.
+router.post("/dispatches/:id/shelter-request", requireDistrictBoard, shelterRequest);
+// Officer: read the mission's live shelter handoff (status, beds, team response).
+router.get("/dispatches/:id/shelter-group", requireDistrictBoard, shelterGroup);
 
 // Live feed of this officer's district, for the board that watches a mission move.
 router.get("/stream", requireDistrictBoard, stream);
@@ -53,6 +62,12 @@ router.post("/dispatches/:id/status", requireTeamLeader, status);
 // Leader taps "we reached the shelter" after a completed rescue; this flags the
 // group so the shelter desk knows people are at the door before confirmation.
 router.post("/dispatches/:id/shelter-arrival", requireTeamLeader, shelterArrival);
+// Leader accepts the shelter the district assigned and starts moving the group
+// there (group -> IN_TRANSIT). The arrival report above still finishes the handoff.
+router.post("/dispatches/:id/shelter-ack", requireTeamLeader, shelterAck);
+// Leader declines the assigned shelter (those beds do not work): the reservation
+// is released and the district is asked to reassign.
+router.post("/dispatches/:id/shelter-reject", requireTeamLeader, shelterReject);
 
 // Shared: the stage names, so a client never keeps its own copy.
 router.get("/stages", stages);
