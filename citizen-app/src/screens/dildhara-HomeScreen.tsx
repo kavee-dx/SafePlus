@@ -36,6 +36,7 @@ interface HomeScreenProps {
   onFindReliefCenters?: () => void;
   onAlertsChanged?: () => void;
   onAction?: (key: string) => void;
+  onOpenDeliveries?: () => void;
   unreadCount?: number;
 }
 
@@ -48,6 +49,7 @@ export default function HomeScreen({
   onFindReliefCenters,
   onAlertsChanged,
   onAction,
+  onOpenDeliveries,
   unreadCount = 0,
 }: HomeScreenProps) {
   const [tab, setTab] = useState<TabKey>("home");
@@ -100,6 +102,11 @@ export default function HomeScreen({
 
     if (key === "request-resource") {
       setView("request");
+      return;
+    }
+
+    if (key === "my-deliveries") {
+      onOpenDeliveries?.();
       return;
     }
 

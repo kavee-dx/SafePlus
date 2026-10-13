@@ -7,6 +7,7 @@ import {
   getDispatch,
   listDispatchAssignmentOptions,
   listDispatches,
+  listMyDeliveryAssignments,
   respondToDispatch,
   updateDispatchStatus,
 } from "../repositories/dildhara-reliefDispatchRepository";
@@ -77,6 +78,23 @@ export async function getDispatches() {
 
 export async function getDispatchAssignmentOptions() {
   return listDispatchAssignmentOptions();
+}
+
+export async function getMyDeliveryAssignments(
+  userId: string,
+  role: string
+) {
+  if (
+    role !== "DELIVERY_VOLUNTEER" &&
+    role !== "DELIVERY_VOLUNTEER_TEAM"
+  ) {
+    throw new ApiError(
+      403,
+      "Only delivery volunteers and delivery teams can view their deliveries."
+    );
+  }
+
+  return listMyDeliveryAssignments(userId, role);
 }
 
 export async function recordAgencyResponse(

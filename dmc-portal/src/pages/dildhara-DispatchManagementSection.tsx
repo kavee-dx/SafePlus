@@ -616,6 +616,19 @@ export default function DildharaDispatchManagementSection({
 
     return matchesStatus && matchesSearch;
   });
+  const allocationForDispatch = (dispatch: ReliefDispatch) =>
+    allocations.find((allocation) => allocation.id === dispatch.allocation_id);
+  const allocationNameForDispatch = (dispatch: ReliefDispatch) => {
+    const allocation = allocationForDispatch(dispatch);
+
+    return (
+      dispatch.destination_name ??
+      allocation?.destination_name ??
+      dispatch.destination_location ??
+      allocation?.destination_location ??
+      "Allocation"
+    );
+  };
 
   return (
     <section style={{ marginTop: 28 }}>
@@ -860,12 +873,7 @@ export default function DildharaDispatchManagementSection({
                   cursor: "pointer",
                 }}
               >
-                <strong>
-                  {dispatch.destination_name ??
-                    allocations.find((a) => a.id === dispatch.allocation_id)
-                      ?.destination_name ??
-                    "Dispatch"}
-                </strong>
+                <strong>{allocationNameForDispatch(dispatch)}</strong>
                 <span
                   style={{
                     float: "right",
@@ -876,18 +884,10 @@ export default function DildharaDispatchManagementSection({
                 >
                   {dispatch.status}
                 </span>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#6b7280",
-                    marginTop: 5,
-                    overflowWrap: "anywhere",
-                  }}
-                >
-                  ID: {dispatch.id}
-                </div>
                 <div style={{ fontSize: 12, color: "#475467", marginTop: 5 }}>
-                  Allocation: {dispatch.allocation_id}
+                  {dispatch.destination_district ??
+                    allocationForDispatch(dispatch)?.destination_district ??
+                    "District unavailable"}
                   {" · "}Agency: {dispatch.agency_response}
                   {" · "}Trips: {dispatch.assignments?.length ?? 0}
                 </div>
@@ -926,14 +926,9 @@ export default function DildharaDispatchManagementSection({
               <strong>Allocation status:</strong>{" "}
               {selectedDispatch.allocation_status ?? "Unavailable"}
             </p>
-            <p style={{ overflowWrap: "anywhere" }}>
-              <strong>Dispatch ID:</strong> {selectedDispatch.id}
-            </p>
-            <p style={{ overflowWrap: "anywhere" }}>
-              <strong>Allocation:</strong> {selectedDispatch.allocation_id}
-              {selectedDispatch.destination_name
-                ? ` · ${selectedDispatch.destination_name}`
-                : ""}
+            <p>
+              <strong>Allocation destination:</strong>{" "}
+              {allocationNameForDispatch(selectedDispatch)}
               {selectedDispatch.destination_district
                 ? ` · ${selectedDispatch.destination_district}`
                 : ""}
@@ -958,7 +953,7 @@ export default function DildharaDispatchManagementSection({
               <ul>
                 {selectedDispatch.items.map((item) => (
                   <li key={item.id}>
-                    {item.resource_name ?? item.resource_id ?? item.id}:{" "}
+                    {item.resource_name ?? item.resource_type ?? "Resource"}:{" "}
                     {quantity(item.quantity_dispatched)} {item.unit ?? ""}
                     {item.quantity_received != null &&
                       ` · Received ${quantity(item.quantity_received)}`}

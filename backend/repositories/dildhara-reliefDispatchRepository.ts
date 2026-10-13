@@ -34,6 +34,74 @@ interface DeliveryItemInput {
   quantityMissing: number;
 }
 
+export type DeliveryAccountRole =
+  | "DELIVERY_VOLUNTEER"
+  | "DELIVERY_VOLUNTEER_TEAM";
+
+function deliveryAssignmentOwnerClause(role: DeliveryAccountRole): string {
+  return role === "DELIVERY_VOLUNTEER"
+    ? "(volunteer.user_id = $1 OR assignment.driver_user_id = $1)"
+    : "team.user_id = $1";
+}
+
+function deliveryAssignmentSelect(ownerClause: string): string {
+  return `SELECT assignment.id AS "assignmentId",
+                 assignment.trip_number AS "tripNumber",
+                 assignment.status AS "assignmentStatus",
+                 assignment.notes AS "assignmentNotes",
+                 dispatch.id AS "dispatchId",
+                 dispatch.status AS "dispatchStatus",
+                 dispatch.agency_response AS "agencyResponse",
+                 dispatch.planned_departure AS "plannedDeparture",
+                 dispatch.actual_departure AS "actualDeparture",
+                 allocation.destination_name AS "destinationName",
+                 allocation.destination_location AS "destinationLocation",
+                 allocation.destination_district AS "destinationDistrict",
+                 driver.full_name AS "driverName",
+                 volunteer_user.full_name AS "volunteerName",
+                 team.team_name AS "teamName",
+                 (
+                   SELECT COALESCE(
+                     json_agg(
+                       json_build_object(
+                         'id', item.id,
+                         'resourceName', resource.resource_name,
+                         'resourceType', resource.resource_type,
+                         'pickupLocation', resource.location,
+                         'pickupDistrict', resource.district,
+                         'quantityDispatched', item.quantity_dispatched,
+                         'quantityReceived', item.quantity_received,
+                         'quantityDamaged', item.quantity_damaged,
+                         'quantityMissing', item.quantity_missing,
+                         'unit', resource.unit
+                       )
+                       ORDER BY item.created_at
+                     ),
+                     '[]'::json
+                   )
+                   FROM relief_dispatch_items item
+                   JOIN relief_allocation_items allocation_item
+                     ON allocation_item.id = item.allocation_item_id
+                   JOIN relief_resources resource
+                     ON resource.id = allocation_item.resource_id
+                   WHERE item.assignment_id = assignment.id
+                 ) AS items
+          FROM relief_dispatch_assignments assignment
+          JOIN relief_dispatches dispatch
+            ON dispatch.id = assignment.dispatch_id
+          JOIN relief_allocations allocation
+            ON allocation.id = dispatch.allocation_id
+          LEFT JOIN delivery_volunteers volunteer
+            ON volunteer.id = assignment.volunteer_profile_id
+          LEFT JOIN users volunteer_user
+            ON volunteer_user.id = volunteer.user_id
+          LEFT JOIN delivery_volunteer_teams team
+            ON team.id = assignment.team_profile_id
+          LEFT JOIN users driver
+            ON driver.id = assignment.driver_user_id
+          WHERE ${ownerClause}`;
+}
+
 async function rollbackAndThrow(
   client: PoolClient,
   error: unknown
@@ -207,6 +275,19 @@ export async function listDispatches() {
   );
 
   return Promise.all(result.rows.map(({ id }) => getDispatch(id)));
+}
+
+export async function listMyDeliveryAssignments(
+  userId: string,
+  role: DeliveryAccountRole
+) {
+  const result = await pool.query(
+    `${deliveryAssignmentSelect(deliveryAssignmentOwnerClause(role))}
+     ORDER BY assignment.created_at DESC`,
+    [userId]
+  );
+
+  return result.rows;
 }
 
 export async function listDispatchAssignmentOptions() {

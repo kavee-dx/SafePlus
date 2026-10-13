@@ -69,12 +69,17 @@ describe("dispatch register", () => {
     render(<DispatchManagementSection token="coordinator-token" onSessionExpired={vi.fn()} />);
 
     const savedEntry = await screen.findByRole("button", { name: /North Relief Centre.*DELIVERED/i });
+    expect(screen.queryByText(dispatch.id)).toBeNull();
+    expect(screen.queryByText(dispatch.allocation_id)).toBeNull();
     fireEvent.click(savedEntry);
 
     await waitFor(() => expect(fetchDispatchDetails).toHaveBeenCalledWith(
       "coordinator-token",
       dispatch.id
     ));
+    expect((await screen.findAllByText("North Relief Centre")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(dispatch.id)).toBeNull();
+    expect(screen.queryByText(dispatch.allocation_id)).toBeNull();
     expect(await screen.findByText("Kamal Perera")).toBeTruthy();
     expect(screen.getByText("Two cartons were damaged.")).toBeTruthy();
   });

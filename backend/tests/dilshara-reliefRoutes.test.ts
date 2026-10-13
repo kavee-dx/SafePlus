@@ -9,6 +9,8 @@ jest.mock("../middlewares/dildhara-requireAuth", () => ({
       req.user = {
         sub: "33333333-3333-4333-8333-333333333333",
         role: mockRole,
+        interfaces: ["MOBILE_APP"],
+        type: "user",
       };
     }
     next();
@@ -48,6 +50,27 @@ describe("relief operations routes", () => {
 
     await request(app)
       .get("/api/relief-operations/dispatches")
+      .expect(403);
+  });
+
+  it.each(["DELIVERY_VOLUNTEER", "DELIVERY_VOLUNTEER_TEAM"])(
+    "allows %s accounts to retrieve only their delivery list endpoint",
+    async (role) => {
+      mockRole = role;
+
+      const response = await request(app)
+        .get("/api/relief-operations/dispatches/my-deliveries")
+        .expect(200);
+
+      expect(response.body).toEqual({ assignments: [] });
+    }
+  );
+
+  it("does not allow other roles to use the volunteer delivery endpoint", async () => {
+    mockRole = "CITIZEN";
+
+    await request(app)
+      .get("/api/relief-operations/dispatches/my-deliveries")
       .expect(403);
   });
 
