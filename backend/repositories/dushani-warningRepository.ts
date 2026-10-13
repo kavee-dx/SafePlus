@@ -12,7 +12,7 @@ import {
 } from "../models/disasterWarning";
 import { ROLE_INTERFACES, type UserRole } from "../models/registration";
 import type { AlertRecipient } from "../services/dushani-disseminationChannels";
-import { findReportById, type Row } from "./dushani-hazardReportRepository";
+import { findReportsByIds, type Row } from "./dushani-hazardReportRepository";
 
 interface WarningRow extends Row {
   id: string;
@@ -186,43 +186,83 @@ export async function findWarningById(id: string): Promise<DisasterWarning | nul
 }
 
 async function hydrate(row: WarningRow): Promise<DisasterWarning> {
-  const [polygonResult, logResult] = await Promise.all([
+  const [warning] = await hydrateAll([row]);
+
+  return warning;
+}
+
+/**
+ * Attach the boundary, channel logs and source report for a whole page of
+ * warnings in three queries instead of three per warning. Each round trip to the
+ * hosted database costs more than the query itself, so the old per-row lookups
+ * made the dashboard load slower with every warning issued.
+ */
+async function hydrateAll(rows: WarningRow[]): Promise<DisasterWarning[]> {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const warningIds = rows.map((row) => row.id);
+  const reportIds = [
+    ...new Set(rows.map((row) => row.report_id).filter((id) => Boolean(id))),
+  ];
+
+  const [polygonResult, logResult, reports] = await Promise.all([
     pool.query(
-      `SELECT id, warning_id, source, coordinates, area_sq_km, district_overlap_ratio,
+      `SELECT DISTINCT ON (warning_id)
+              id, warning_id, source, coordinates, area_sq_km, district_overlap_ratio,
               is_valid, created_at
          FROM gis_polygons
-        WHERE warning_id = $1
-        ORDER BY created_at DESC
-        LIMIT 1`,
-      [row.id]
+        WHERE warning_id = ANY($1)
+        ORDER BY warning_id, created_at DESC`,
+      [warningIds]
     ),
     pool.query(
       `SELECT id, warning_id, channel_type, status, dispatched_at, target_count,
               delivery_count, failure_count, error_message
          FROM broadcast_logs
-        WHERE warning_id = $1
-        ORDER BY dispatched_at ASC`,
-      [row.id]
+        WHERE warning_id = ANY($1)
+        ORDER BY warning_id, dispatched_at ASC`,
+      [warningIds]
     ),
+    findReportsByIds(reportIds),
   ]);
 
-  const warning = toWarning(row);
-
-  const polygonRow = polygonResult.rows[0] as Row | undefined;
-
-  if (polygonRow) {
-    warning.gisPolygon = toPolygon(polygonRow);
+  const polygons = new Map<string, GISPolygon>();
+  for (const row of polygonResult.rows as Row[]) {
+    polygons.set(row.warning_id as string, toPolygon(row));
   }
 
-  warning.broadcastLogs = (logResult.rows as Row[]).map(toBroadcastLog);
+  const logsByWarning = new Map<string, BroadcastLog[]>();
+  for (const row of logResult.rows as Row[]) {
+    const warningId = row.warning_id as string;
+    const existing = logsByWarning.get(warningId);
 
-  const report = await findReportById(row.report_id);
-
-  if (report) {
-    warning.report = report;
+    if (existing) {
+      existing.push(toBroadcastLog(row));
+    } else {
+      logsByWarning.set(warningId, [toBroadcastLog(row)]);
+    }
   }
 
-  return warning;
+  return rows.map((row) => {
+    const warning = toWarning(row);
+    const polygon = polygons.get(row.id);
+
+    if (polygon) {
+      warning.gisPolygon = polygon;
+    }
+
+    warning.broadcastLogs = logsByWarning.get(row.id) ?? [];
+
+    const report = reports.get(row.report_id);
+
+    if (report) {
+      warning.report = report;
+    }
+
+    return warning;
+  });
 }
 
 function toPolygon(row: Row): GISPolygon {
@@ -280,7 +320,7 @@ export async function listWarningsByOfficer(
     [officerId, limit]
   );
 
-  return Promise.all((result.rows as WarningRow[]).map(hydrate));
+  return hydrateAll(result.rows as WarningRow[]);
 }
 
 export async function listWarningsByReport(
@@ -291,7 +331,7 @@ export async function listWarningsByReport(
     [reportInternalId]
   );
 
-  return Promise.all((result.rows as WarningRow[]).map(hydrate));
+  return hydrateAll(result.rows as WarningRow[]);
 }
 
 export async function updateWarning(
