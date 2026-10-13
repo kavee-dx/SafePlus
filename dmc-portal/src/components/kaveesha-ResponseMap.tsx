@@ -63,18 +63,26 @@ function pointOf(marker: ResponseMapMarker): [number, number] {
 function badgeHtml(marker: ResponseMapMarker): string {
   const color = TONE_COLORS[marker.tone];
   const isIncident = marker.tone === "incident";
+  const pulsing = isIncident || marker.tone === "lead";
   const size = marker.selected ? 40 : isIncident ? 38 : 30;
   const ring = marker.selected
     ? `box-shadow:0 0 0 4px rgba(255,255,255,0.9), 0 0 0 7px ${color};`
     : "box-shadow:0 3px 10px rgba(11,31,51,0.35);";
 
+  // The incident and the top-ranked team blink so the eye lands on the pair that
+  // matters — where the call came from, and who should go to it.
+  const halo = pulsing
+    ? `<span class="krm-halo" style="border-color:${color};"></span>`
+    : "";
+
   return `
-    <div style="
+    <div style="position:relative;
       width:${size}px;height:${size}px;border-radius:999px;
       background:${color};border:2.5px solid #FFFFFF;${ring}
       display:flex;align-items:center;justify-content:center;
       color:#FFFFFF;font-family:Inter,system-ui,sans-serif;
       font-size:${isIncident ? 15 : 12.5}px;font-weight:800;line-height:1;">
+      ${halo}
       ${isIncident ? "&#9650;" : marker.badge ?? ""}
     </div>
   `;
@@ -405,6 +413,25 @@ const RESPONSE_MAP_CSS = `
   }
 
   .krm-pin, .krm-distance { background: transparent; border: none; }
+
+  .krm-halo {
+    position: absolute;
+    inset: -4px;
+    border-radius: 999px;
+    border: 3px solid currentColor;
+    pointer-events: none;
+    animation: krm-halo 1.7s ease-out infinite;
+  }
+
+  @keyframes krm-halo {
+    0% { transform: scale(0.82); opacity: 0.85; }
+    70% { transform: scale(1.7); opacity: 0; }
+    100% { transform: scale(1.7); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .krm-halo { animation: none; opacity: 0; }
+  }
 
   .krm-distance span { box-shadow: 0 2px 8px rgba(11, 31, 51, 0.12); }
 

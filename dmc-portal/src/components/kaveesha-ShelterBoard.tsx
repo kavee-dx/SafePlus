@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   TriangleAlert,
+  UserPlus,
   Users,
   X,
 } from "lucide-react";
@@ -33,7 +34,7 @@ import {
 } from "../utils/kaveesha-shelterFormat";
 import { CapacityDonutChart, OccupancyTrendChart } from "./kaveesha-charts";
 import KaveeshaShelterInsights from "./kaveesha-ShelterInsights";
-import { DISPATCH_CSS, DESK_CSS } from "../styles/kaveesha-dispatchStyles";
+import { DISPATCH_CSS, DESK_CSS, SHELTER_CSS } from "../styles/kaveesha-dispatchStyles";
 import { relativeTime } from "../utils/kaveesha-dispatchFormat";
 
 /* ------------------------------------------------------------------ *
@@ -254,84 +255,103 @@ export default function KaveeshaShelterBoard({
   const critical = shelters.filter((s) => s.status === "CRITICAL").length;
 
   return (
-    <div className="kdx-stack">
-      <div className="kqd-head">
-        <div>
-          <div className="kqd-head-title">
-            <Building2 size={18} />
-            Shelter dashboard
+    <div className="ksh">
+      <section className="ksh-hero">
+        <div className="ksh-hero-head">
+          <span className="ksh-medallion">
+            <Building2 size={20} />
+          </span>
+          <div className="ksh-hero-text">
+            <div className="ksh-title">Shelter coordination</div>
+            <p className="ksh-sub">
+              {analytics?.district ?? "All districts"} — occupancy, capacity and
+              the status of every open shelter. Occupancy rises only once a
+              Shelter Manager confirms people have arrived.
+            </p>
           </div>
-          <p className="kqd-head-sub">
-            {analytics?.district ?? "All districts"} — occupancy, capacity and the
-            status of every open shelter. Occupancy only rises when a Shelter
-            Manager confirms arrival.
-          </p>
+          <div className="ksh-actions">
+            <span
+              className={`ksh-live${streamLive ? " ksh-live-on" : ""}`}
+              title={
+                streamLive
+                  ? "Live updates connected"
+                  : "Live feed reconnecting — the board still refreshes on a timer"
+              }
+            >
+              <i />
+              {streamLive ? "Live" : "Polling"}
+            </span>
+            <button
+              type="button"
+              className="kdx-btn kdx-btn-sm"
+              onClick={refresh}
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              className="kdx-btn kdx-btn-primary"
+              onClick={openCreate}
+            >
+              <Plus size={15} />
+              Add shelter
+            </button>
+          </div>
         </div>
+
         {analytics && (
-          <div className="kqd-head-stats">
-            <div className="kqd-stat">
-              <strong>{analytics.shelters.length}</strong>
-              <span>Shelters</span>
-            </div>
-            <div className="kqd-stat">
-              <strong>{analytics.occupiedBeds}</strong>
-              <span>Confirmed inside</span>
-            </div>
-            <div className="kqd-stat kqd-stat-live">
-              <strong>{analytics.reservedBeds}</strong>
-              <span>Inbound</span>
-            </div>
-            <div className={`kqd-stat${critical > 0 ? " kqd-stat-hot" : ""}`}>
-              <strong>{critical}</strong>
-              <span>Critical</span>
+          <div className="ksh-rail">
+            <div className="ksh-cells">
+              <div className="ksh-cell">
+                <span className="ksh-cell-ico">
+                  <Building2 size={14} />
+                </span>
+                <span className="ksh-cell-figure">{analytics.shelters.length}</span>
+                <span className="ksh-cell-caption">Shelters in view</span>
+                <span className="ksh-cell-sub">
+                  {analytics.totalBeds.toLocaleString()} beds registered
+                </span>
+              </div>
+              <div className="ksh-cell ksh-cell-good">
+                <span className="ksh-cell-ico">
+                  <Users size={14} />
+                </span>
+                <span className="ksh-cell-figure">
+                  {analytics.occupiedBeds.toLocaleString()}
+                </span>
+                <span className="ksh-cell-caption">Confirmed inside</span>
+                <span className="ksh-cell-sub">
+                  {analytics.totalBeds > 0
+                    ? Math.round(
+                        (analytics.occupiedBeds / analytics.totalBeds) * 100
+                      )
+                    : 0}
+                  % of all beds
+                </span>
+              </div>
+              <div className="ksh-cell ksh-cell-live">
+                <span className="ksh-cell-ico">
+                  <UserPlus size={14} />
+                </span>
+                <span className="ksh-cell-figure">
+                  {analytics.reservedBeds.toLocaleString()}
+                </span>
+                <span className="ksh-cell-caption">Inbound</span>
+                <span className="ksh-cell-sub">Reserved, not yet arrived</span>
+              </div>
+              <div className={`ksh-cell${critical > 0 ? " ksh-cell-hot" : ""}`}>
+                <span className="ksh-cell-ico">
+                  <TriangleAlert size={14} />
+                </span>
+                <span className="ksh-cell-figure">{critical}</span>
+                <span className="ksh-cell-caption">Critical</span>
+                <span className="ksh-cell-sub">No space left to claim</span>
+              </div>
             </div>
           </div>
         )}
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <span
-          className={`kdx-chip ${streamLive ? "kdx-chip-good" : "kdx-chip"}`}
-          title={
-            streamLive
-              ? "Live updates connected"
-              : "Live feed reconnecting — the board still refreshes on a timer"
-          }
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: 999,
-              background: streamLive ? Colors.success : Colors.muted,
-              display: "inline-block",
-            }}
-          />
-          {streamLive ? "Live" : "Polling"}
-        </span>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button type="button" className="kdx-btn kdx-btn-sm" onClick={refresh}>
-            <RefreshCw size={14} />
-            Refresh
-          </button>
-          <button
-            type="button"
-            className="kdx-btn kdx-btn-primary"
-            onClick={openCreate}
-          >
-            <Plus size={15} />
-            Add shelter
-          </button>
-        </div>
-      </div>
+      </section>
 
       {notice && (
         <div className="kdx-success">
@@ -361,19 +381,17 @@ export default function KaveeshaShelterBoard({
           dashboard…
         </div>
       ) : shelters.length === 0 ? (
-        <div className="kdx-panel">
-          <div className="kdx-empty">
-            <Building2 size={30} />
-            <div>No open shelters are on the register for this view.</div>
-            <button
-              type="button"
-              className="kdx-btn kdx-btn-primary"
-              onClick={openCreate}
-            >
-              <Plus size={15} />
-              Add the first shelter
-            </button>
-          </div>
+        <div className="ksh-quiet">
+          <Building2 size={30} />
+          <div>No open shelters are on the register for this view.</div>
+          <button
+            type="button"
+            className="kdx-btn kdx-btn-primary"
+            onClick={openCreate}
+          >
+            <Plus size={15} />
+            Add the first shelter
+          </button>
         </div>
       ) : (
         <KaveeshaShelterInsights
@@ -413,7 +431,7 @@ export default function KaveeshaShelterBoard({
         />
       )}
 
-      <style>{`${DISPATCH_CSS}${DESK_CSS}`}</style>
+      <style>{`${DISPATCH_CSS}${DESK_CSS}${SHELTER_CSS}`}</style>
     </div>
   );
 }

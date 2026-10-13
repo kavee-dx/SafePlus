@@ -1,7 +1,9 @@
 import type { DispatchRoll } from "../models/kaveesha-rescueDispatch";
 import {
   clearLeaderPushToken,
+  findDispatchRoll,
   findLeaderPushTarget,
+  insertLeaderNotification,
 } from "../repositories/kaveesha-dispatchRepository";
 
 /* ------------------------------------------------------------------ *
@@ -148,6 +150,42 @@ async function deliver(
 }
 
 /**
+ * The push is a banner that fades; this is the copy that stays. Write the same
+ * message into the leader's in-app notification feed, addressed to their user
+ * account, so a phone that was offline when the mission dropped still shows the
+ * tasking the moment the app opens. It is deliberately independent of the push
+ * token: a leader with notifications switched off still gets the standing record.
+ * Fire-and-forget like the push — a tasking never fails on the notification.
+ */
+async function recordForLeader(
+  teamId: string,
+  entry: {
+    type: string;
+    title: string;
+    message: string;
+    reportId?: string | null;
+  }
+): Promise<void> {
+  try {
+    const target = await findLeaderPushTarget(teamId);
+
+    if (!target) return;
+
+    await insertLeaderNotification({
+      recipientUserId: target.userId,
+      type: entry.type,
+      title: entry.title,
+      message: entry.message,
+      reportId: entry.reportId ?? null,
+    });
+  } catch (error) {
+    console.warn(
+      `[dispatch-push] ${(error as Error).message}; in-app record skipped`
+    );
+  }
+}
+
+/**
  * A new mission. This is the one notification that must arrive fast, so the
  * wording leads with the reference the control room is reading out over the
  * phone and the hazard the team is driving into.
@@ -156,13 +194,50 @@ export async function notifyLeaderOfTasking(
   roll: DispatchRoll
 ): Promise<PushOutcome> {
   const severity = roll.severityLevel.toLowerCase().replace(/_/g, " ");
+  const title = `You have been tasked · ${roll.dispatchCode}`;
+  const body = `${severity} ${roll.hazardType
+    .toLowerCase()
+    .replace(/_/g, " ")} at ${
+    roll.landmark ?? roll.reportPublicId
+  }. Open the app to accept.`;
+
+  // The record lands first: the feed is the reliable channel, the push is the fast one.
+  await recordForLeader(roll.teamId, {
+    type: "TEAM_TASKED",
+    title,
+    message: body,
+    reportId: roll.reportId,
+  });
+
+  return deliver(roll.teamId, title, body, {
+    screen: "mission",
+    dispatchCode: roll.dispatchCode,
+    reportId: roll.reportPublicId,
+    status: roll.status,
+  });
+}
+
+/** The officer ended the mission, so the team can turn around. */
+export async function notifyLeaderOfStandDown(
+  roll: DispatchRoll,
+  reason?: string
+): Promise<PushOutcome> {
+  const title = `Mission stood down · ${roll.dispatchCode}`;
+  const body = reason?.trim()
+    ? reason.trim()
+    : `${roll.reportPublicId} no longer needs your team. You are released.`;
+
+  await recordForLeader(roll.teamId, {
+    type: "MISSION_STOOD_DOWN",
+    title,
+    message: body,
+    reportId: roll.reportId,
+  });
 
   return deliver(
     roll.teamId,
-    `You have been tasked · ${roll.dispatchCode}`,
-    `${severity} ${roll.hazardType.toLowerCase().replace(/_/g, " ")} at ${
-      roll.landmark ?? roll.reportPublicId
-    }. Open the app to accept.`,
+    title,
+    body,
     {
       screen: "mission",
       dispatchCode: roll.dispatchCode,
@@ -172,22 +247,44 @@ export async function notifyLeaderOfTasking(
   );
 }
 
-/** The officer ended the mission, so the team can turn around. */
-export async function notifyLeaderOfStandDown(
-  roll: DispatchRoll,
-  reason?: string
+/**
+ * The officer has found beds for the group the leader rescued. This is the
+ * hand-back: the leader now drives the people somewhere dry. It reads the
+ * mission from the dispatch the group came from, so the phone's existing
+ * deep-link (opened by `reportId`/`screen: mission`) still lands on the mission.
+ * Like every notification here it can never fail the officer's allocation, so
+ * the caller fires it and forgets it.
+ */
+export async function notifyLeaderOfShelterAssignment(
+  dispatchId: string,
+  groupCode: string,
+  shelters: { name: string; count: number }[]
 ): Promise<PushOutcome> {
-  return deliver(
-    roll.teamId,
-    `Mission stood down · ${roll.dispatchCode}`,
-    reason?.trim()
-      ? reason.trim()
-      : `${roll.reportPublicId} no longer needs your team. You are released.`,
-    {
-      screen: "mission",
-      dispatchCode: roll.dispatchCode,
-      reportId: roll.reportPublicId,
-      status: roll.status,
-    }
-  );
+  if (shelters.length === 0) return "no-team";
+
+  const roll = await findDispatchRoll(dispatchId).catch(() => null);
+
+  if (!roll) return "no-team";
+
+  const where =
+    shelters.length === 1
+      ? `${shelters[0].name} (${shelters[0].count} places)`
+      : shelters.map((s) => `${s.name} (${s.count})`).join(" and ");
+
+  const title = `Shelter assigned · ${roll.dispatchCode}`;
+  const body = `${groupCode} is allocated to ${where}. Open the app to head there.`;
+
+  await recordForLeader(roll.teamId, {
+    type: "SHELTER_ASSIGNED",
+    title,
+    message: body,
+    reportId: roll.reportId,
+  });
+
+  return deliver(roll.teamId, title, body, {
+    screen: "mission",
+    dispatchCode: roll.dispatchCode,
+    reportId: roll.reportPublicId,
+    status: roll.status,
+  });
 }

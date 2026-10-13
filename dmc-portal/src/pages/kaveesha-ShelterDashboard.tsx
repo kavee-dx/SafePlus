@@ -47,7 +47,7 @@ import {
 import { CapacityDonutChart, OccupancyTrendChart } from "../components/kaveesha-charts";
 import KaveeshaShelterInsights from "../components/kaveesha-ShelterInsights";
 import { relativeTime } from "../utils/kaveesha-dispatchFormat";
-import { DISPATCH_CSS, DESK_CSS } from "../styles/kaveesha-dispatchStyles";
+import { DISPATCH_CSS, DESK_CSS, SHELTER_CSS } from "../styles/kaveesha-dispatchStyles";
 
 /* ------------------------------------------------------------------ *
  * The Shelter Manager dashboard (its own layout, not the officer board).
@@ -394,7 +394,7 @@ export default function KaveeshaShelterDashboard({
         />
       )}
 
-      <style>{`${DISPATCH_CSS}${DESK_CSS}`}</style>
+      <style>{`${DISPATCH_CSS}${DESK_CSS}${SHELTER_CSS}`}</style>
     </div>
   );
 }

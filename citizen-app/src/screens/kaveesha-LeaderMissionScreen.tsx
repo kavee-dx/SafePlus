@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Linking,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import MissionMap from "./kaveesha-MissionMap";
 
 import {
   STAGE_ACTIONS,
@@ -17,6 +20,7 @@ import {
   type DispatchStatus,
   type LeaderWorkspace,
   type MissionRoll,
+  type ShelterAssignment,
   type StageUpdate,
   stageColor,
 } from "../services/kaveesha-leaderApi";
@@ -37,6 +41,11 @@ interface MissionScreenProps {
   /** The "we reached the shelter" tap. Resolves with the server's message;
    *  throws so the card can show the reason without a second round-trip. */
   onReportArrival: () => Promise<string>;
+  /** The "accept, heading to shelter" tap (group -> IN_TRANSIT). Same contract. */
+  onAckShelter: () => Promise<string>;
+  /** The "these beds don't work" tap — releases the plan so the district can
+   *  reassign (group -> DECLINED). Same contract. */
+  onRejectShelter: () => Promise<string>;
 }
 
 /** "just now / 4 min ago / 2 h ago / 3 d ago", said short. */
@@ -75,11 +84,48 @@ const SEVERITY_TONE: Record<string, { bg: string; fg: string }> = {
   LOW: { bg: "#DCFCE7", fg: "#14532D" },
 };
 
+/* A hazard's glyph, so the hero reads the disaster kind at a glance. */
+const HAZARD_GLYPH: Record<string, keyof typeof Ionicons.glyphMap> = {
+  FLOOD: "water-outline",
+  LANDSLIDE: "trending-down-outline",
+  CYCLONE: "thunderstorm-outline",
+  EARTHQUAKE: "pulse-outline",
+  TSUNAMI: "water-outline",
+  FIRE: "flame-outline",
+  EPIDEMIC: "medkit-outline",
+  STRUCTURAL_FAILURE: "business-outline",
+};
+
+/* One elevated surface language for the whole board: a near-white card, a hairline
+   border and a soft, real shadow. Reused everywhere so the screen feels cohesive. */
+const INK = "#0B1B34";
+const CARD = StyleSheet.create({
+  surface: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E4E9F2",
+    // iOS shadow
+    shadowColor: "#0B1B34",
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    // Android elevation
+    elevation: 3,
+  },
+});
+
+function hazardGlyph(value: string): keyof typeof Ionicons.glyphMap {
+  return HAZARD_GLYPH[(value ?? "").toUpperCase()] ?? "alert-circle-outline";
+}
+
 export default function KaveeshaLeaderMissionScreen({
   workspace,
   busy,
   onStage,
   onReportArrival,
+  onAckShelter,
+  onRejectShelter,
 }: MissionScreenProps) {
   const insets = useSafeAreaInsets();
   const active = workspace.active;
@@ -87,15 +133,30 @@ export default function KaveeshaLeaderMissionScreen({
   const [rescued, setRescued] = useState("");
   const [evacuated, setEvacuated] = useState("");
 
-  const nextActions = useMemo(
-    () =>
-      workspace.nextStatuses
-        .map((status) => ({ status, meta: STAGE_ACTIONS[status] }))
-        .filter((item) => Boolean(item.meta)),
-    [workspace.nextStatuses]
-  );
+  // One guided step at a time: the phone shows the single next stage in the
+  // mission path (plus Decline while the tasking is still open), never the whole
+  // menu the server allows. That is why the head-count fields only appear when
+  // there is genuinely a mission to complete — after the team has arrived.
+  const nextActions = useMemo(() => {
+    const available = workspace.nextStatuses.filter((status) => Boolean(STAGE_ACTIONS[status]));
+    const list: { status: DispatchStatus; meta: (typeof STAGE_ACTIONS)[string] }[] = [];
+
+    const forward = FORWARD_ORDER.find((status) => available.includes(status));
+
+    if (forward) list.push({ status: forward, meta: STAGE_ACTIONS[forward] });
+    if (available.includes("DECLINED")) list.push({ status: "DECLINED", meta: STAGE_ACTIONS.DECLINED });
+
+    return list;
+  }, [workspace.nextStatuses]);
 
   const scene = buildScene(active);
+
+  // Once the district allocates a shelter, the mission's driving target flips from
+  // the incident to the shelter. The largest allocation is the map; any second
+  // shelter is offered as its own navigate entry below (a split plan).
+  const assignments = active?.shelterAssignment ?? [];
+  const primaryShelter = pickPrimaryShelter(assignments);
+  const mapTarget = resolveMapTarget(primaryShelter, scene, active?.landmark);
 
   const submitStage = async (status: DispatchStatus) => {
     const update: StageUpdate = { status };
@@ -126,13 +187,21 @@ export default function KaveeshaLeaderMissionScreen({
     setEvacuated("");
   };
 
-  const openRoute = async () => {
-    if (!scene?.destination) return;
+  const openRoute = async (destination?: { lat: number; lng: number } | null) => {
+    const target = destination ?? mapTarget;
 
-    const { lat, lng } = scene.destination;
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    if (!target) return;
 
-    await Linking.openURL(url);
+    const { lat, lng } = target;
+    // Universal Google Maps deep link: opens the installed Maps app with the
+    // route drawn and turn-by-turn ready, and falls back to the browser if not.
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving&dir_action=navigate`;
+
+    try {
+      await Linking.openURL(url);
+    } catch {
+      // A phone with no maps handler should still tell the leader, not crash.
+    }
   };
 
   const call = async (phone: string) => {
@@ -157,125 +226,175 @@ export default function KaveeshaLeaderMissionScreen({
       className="flex-1 bg-safeplus-background"
       contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: 120, paddingHorizontal: 16 }}
     >
-      {/* Tasked banner */}
-      <View className="flex-row items-center justify-between mb-3">
-        <Text className="text-[11px] font-extrabold uppercase tracking-widest text-safeplus-muted">
-          You have been tasked
-        </Text>
-        <Text className="text-[11px] font-bold text-safeplus-muted">
-          {ago(active.createdAt)}
-        </Text>
-      </View>
+      {/* The scene, painted: the incident photo under a scrim, the disaster and
+          its severity read at a glance, the orders and the route one tap away. */}
+      <View style={{ ...CARD.surface, marginBottom: 14, padding: 0, overflow: "hidden" }}>
+        <View style={{ height: 150, backgroundColor: INK, justifyContent: "flex-end", padding: 16 }}>
+          {/* hazard glyph watermark */}
+          <View pointerEvents="none" style={{ position: "absolute", right: -8, top: -14, opacity: 0.16 }}>
+            <Ionicons name={hazardGlyph(active.hazardType)} size={132} color="#FFFFFF" />
+          </View>
 
-      {/* The scene card */}
-      <View className="rounded-3xl bg-safeplus-white p-5 shadow-sm border border-safeplus-border">
-        <View className="flex-row items-start justify-between gap-3">
-          <View className="flex-1">
-            <Text className="text-[19px] font-extrabold text-safeplus-navy leading-7">
+          {/* status chips */}
+          <View className="flex-row items-center justify-between" style={{ position: "absolute", top: 14, left: 14, right: 14 }}>
+            <View className="flex-row items-center gap-1.5 px-3 py-1.5" style={{ backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 999 }}>
+              <Ionicons name="radio-button-on" size={13} color="#FFD166" />
+              <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 11, letterSpacing: 0.6 }}>
+                TASKED · {ago(active.createdAt)}
+              </Text>
+            </View>
+            <View className="px-3 py-1.5" style={{ backgroundColor: tone.bg, borderRadius: 999 }}>
+              <Text style={{ color: tone.fg, fontWeight: "900", fontSize: 11, letterSpacing: 0.4 }}>
+                {active.severityLevel}
+              </Text>
+            </View>
+          </View>
+
+          {/* title */}
+          <View className="flex-row items-center gap-2">
+            <Ionicons name={hazardGlyph(active.hazardType)} size={18} color="#FFFFFF" />
+            <Text style={{ color: "#FFFFFF", fontSize: 21, fontWeight: "900", lineHeight: 26 }}>
               {humanizeHazard(active.hazardType)}
             </Text>
-            <Text className="text-[13px] font-semibold text-safeplus-muted mt-1">
-              {active.reportPublicId} · {active.district} District
-            </Text>
           </View>
-          <View
-            className="px-3 py-1.5 rounded-full"
-            style={{ backgroundColor: tone.bg }}
-          >
-            <Text className="text-[11px] font-extrabold uppercase" style={{ color: tone.fg }}>
-              {active.severityLevel}
-            </Text>
-          </View>
-        </View>
-
-        {active.immediateDanger && (
-          <View className="flex-row items-center gap-2 mt-3 px-3 py-2 rounded-xl bg-safeplus-lightRed">
-            <Ionicons name="warning" size={15} color="#B42318" />
-            <Text className="text-[12.5px] font-bold text-safeplus-red">
-              Danger to life reported
-            </Text>
-          </View>
-        )}
-
-        <View className="flex-row items-start gap-2 mt-4">
-          <Ionicons name="location-outline" size={17} color="#667085" style={{ marginTop: 1 }} />
-          <Text className="flex-1 text-[14px] text-safeplus-text font-semibold">
-            {active.landmark || "No landmark given"}
+          <Text style={{ color: "rgba(255,255,255,0.82)", fontSize: 12.5, fontWeight: "700", marginTop: 3 }}>
+            {active.reportPublicId} · {active.district} District
+            {active.affectedPopulation ? ` · ${active.affectedPopulation} affected` : ""}
           </Text>
         </View>
 
-        {scene && (
-          <Text className="text-[12px] text-safeplus-muted mt-1 ml-6">
-            {scene.destination
-              ? `${scene.destination.lat.toFixed(5)}, ${scene.destination.lng.toFixed(5)}`
-              : "No map point saved on this incident"}
-          </Text>
-        )}
+        <View style={{ padding: 16 }}>
+          {active.immediateDanger && (
+            <View className="flex-row items-center gap-2 mb-3 px-3 py-2.5" style={{ backgroundColor: "#FEF3F2", borderRadius: 16 }}>
+              <Ionicons name="warning" size={16} color="#B42318" />
+              <Text style={{ color: "#B42318", fontWeight: "800", fontSize: 12.5 }}>
+                Danger to life reported at this scene
+              </Text>
+            </View>
+          )}
 
-        {Boolean(active.missionNotes) && (
-          <View className="mt-4 px-3.5 py-3 rounded-2xl bg-safeplus-paleGreen border border-safeplus-lightGreen">
-            <Text className="text-[10.5px] font-extrabold uppercase tracking-wide text-safeplus-darkGreen mb-1">
-              Orders from {active.dispatchedByName || "the district"}
+          {/* The scene on a real map — a still pin over the location; tapping the
+              tile hands the route to the maps app. Native map on device, a clean
+              fallback on web (see kaveesha-MissionMap). Once a shelter is assigned
+              the pin moves to the shelter — that is where the team drives now. */}
+          {mapTarget ? (
+            <>
+              <MissionMap
+                destination={{ lat: mapTarget.lat, lng: mapTarget.lng }}
+                title={mapTarget.title}
+                description={
+                  mapTarget.isShelter
+                    ? "Shelter the district assigned"
+                    : `${humanizeHazard(active.hazardType)} · ${active.severityLevel}`
+                }
+                onPress={() => void openRoute()}
+              />
+              {mapTarget.isShelter ? (
+                <View className="flex-row items-center gap-1.5 mt-2">
+                  <Ionicons name="business-outline" size={13} color="#1570EF" />
+                  <Text style={{ color: "#1570EF", fontSize: 12, fontWeight: "800" }}>
+                    Now driving to {mapTarget.title}
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          ) : (
+            <Text style={{ color: "#98A2B3", fontSize: 12, fontWeight: "600", marginBottom: 12, paddingHorizontal: 4 }}>
+              No map point saved on this incident
             </Text>
-            <Text className="text-[13.5px] text-safeplus-navy leading-5">
-              {active.missionNotes}
-            </Text>
-          </View>
-        )}
+          )}
 
-        {/* Scene actions */}
-        <View className="flex-row gap-2.5 mt-4">
-          <Pressable
-            onPress={openRoute}
-            disabled={!scene?.destination}
-            accessibilityRole="button"
-            className={
-              "flex-1 flex-row items-center justify-center gap-2 h-12 rounded-2xl " +
-              (scene?.destination ? "bg-safeplus-blue active:opacity-80" : "bg-safeplus-border")
-            }
-          >
-            <Ionicons name="navigate" size={17} color={scene?.destination ? "#FFFFFF" : "#98A2B3"} />
-            <Text
-              className="text-[14px] font-extrabold"
-              style={{ color: scene?.destination ? "#FFFFFF" : "#98A2B3" }}
-            >
-              Open route
-            </Text>
-          </Pressable>
-
-          {Boolean(active.controlPhone) && (
+          {/* Primary navigate action + control room */}
+          <View className="flex-row gap-2.5 mt-3">
             <Pressable
-              onPress={() => void call(active.controlPhone as string)}
+              onPress={() => void openRoute()}
+              disabled={!mapTarget}
               accessibilityRole="button"
-              className="flex-1 flex-row items-center justify-center gap-2 h-12 rounded-2xl bg-safeplus-white border border-safeplus-border active:opacity-80"
+              className="flex-row items-center justify-center flex-1 gap-2 active:opacity-90"
+              style={{ height: 52, borderRadius: 16, backgroundColor: mapTarget ? INK : "#EAECF0" }}
             >
-              <Ionicons name="call" size={16} color="#0F172A" />
-              <Text className="text-[14px] font-extrabold text-safeplus-navy">Control</Text>
+              <Ionicons name="navigate" size={18} color={mapTarget ? "#FFFFFF" : "#98A2B3"} />
+              <Text style={{ color: mapTarget ? "#FFFFFF" : "#98A2B3", fontSize: 15, fontWeight: "900" }}>
+                {mapTarget?.isShelter ? "Navigate to shelter" : "Navigate to scene"}
+              </Text>
             </Pressable>
+
+            {Boolean(active.controlPhone) && (
+              <Pressable
+                onPress={() => void call(active.controlPhone as string)}
+                accessibilityRole="button"
+                className="flex-row items-center justify-center active:opacity-80"
+                style={{ width: 52, height: 52, borderRadius: 16, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E4E9F2" }}
+              >
+                <Ionicons name="call" size={19} color={INK} />
+              </Pressable>
+            )}
+          </View>
+
+          {Boolean(active.missionNotes) && (
+            <View className="mt-4 p-3.5" style={{ backgroundColor: "#F4FBF6", borderRadius: 18, borderWidth: 1, borderColor: "#DCFCE7" }}>
+              <Text style={{ color: "#14532D", fontSize: 10.5, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 3 }}>
+                Orders · {active.dispatchedByName || "the district"}
+              </Text>
+              <Text style={{ color: INK, fontSize: 13.5, lineHeight: 19 }}>
+                {active.missionNotes}
+              </Text>
+            </View>
           )}
         </View>
       </View>
 
+      {/* The incident photo, shown big on its own — what the scene looks like,
+          straight from what the citizens on the ground sent. */}
+      {active.thumbnailUrl ? (
+        <View style={{ ...CARD.surface, marginBottom: 14, padding: 0, overflow: "hidden" }}>
+          <Image
+            source={{ uri: active.thumbnailUrl }}
+            resizeMode="cover"
+            style={{ width: "100%", height: 280 }}
+          />
+          <View className="flex-row items-center gap-2" style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+            <Ionicons name="image-outline" size={15} color="#475467" />
+            <Text style={{ color: "#475467", fontSize: 12, fontWeight: "700" }} numberOfLines={1}>
+              Incident photo · from the scene report
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       {/* Where the mission is now */}
       <StageTrail roll={active} />
 
-      {/* Once the rescue is done the group needs a roof: report you reached the
-          shelter so the desk knows people are at the door before the manager
-          confirms the headcount. */}
-      {active.status === "COMPLETED" && (
-        <ShelterArrivalCard onReport={onReportArrival} busy={busy} />
-      )}
+      {/* Once the rescue has people to shelter, the district allocates beds while
+          the team is still Returning. As soon as a shelter is assigned, show where
+          to drive, accept the plan and report arrival — then the mission completes. */}
+      {assignments.length > 0 ? (
+        <ShelterPanel
+          assignments={assignments}
+          groupStatus={active.groupStatus ?? null}
+          busy={busy}
+          onNavigate={(destination) => void openRoute(destination)}
+          onAck={onAckShelter}
+          onReject={onRejectShelter}
+          onReport={onReportArrival}
+        />
+      ) : null}
+
+      {(active.status === "RETURNING" || active.status === "COMPLETED") &&
+      assignments.length === 0 ? (
+        <AwaitingShelterCard declined={active.groupStatus === "DECLINED"} />
+      ) : null}
 
       {/* The action(s) the leader is allowed to take next */}
-      <Text className="text-[13px] font-extrabold text-safeplus-navy mt-5 mb-2">
+      <Text className="text-[15px] font-extrabold text-safeplus-navy mt-1 mb-3">
         {nextActions.length > 0 ? "What happens next" : "Awaiting the district"}
       </Text>
 
       {nextActions.length === 0 ? (
-        <View className="rounded-2xl bg-safeplus-white border border-safeplus-border p-4">
-          <Text className="text-[13.5px] text-safeplus-muted leading-5">
-            There is nothing for you to tap right now. The district may re-task or stand
-            this mission down — you will be told the moment that happens.
+        <View style={{ ...CARD.surface, padding: 16 }}>
+          <Text style={{ color: "#5B6B7F", fontSize: 13.5, lineHeight: 20 }}>
+            There is nothing for you to tap right now. The district may re-task or
+            stand this mission down — you will be told the moment that happens.
           </Text>
         </View>
       ) : (
@@ -320,6 +439,17 @@ export default function KaveeshaLeaderMissionScreen({
  * Small pieces.
  * ------------------------------------------------------------------ */
 
+/* The mission path in the order a leader walks it. The phone advances one step at
+   a time, so this decides which single button is the "next" one. */
+const FORWARD_ORDER: DispatchStatus[] = [
+  "ACCEPTED",
+  "EN_ROUTE",
+  "ARRIVED",
+  "RESCUE_IN_PROGRESS",
+  "RETURNING",
+  "COMPLETED",
+];
+
 function needsCounts(actions: { status: DispatchStatus }[]): boolean {
   return actions.some((action) => STAGE_ACTIONS[action.status]?.needsCounts);
 }
@@ -348,38 +478,45 @@ function ActionButton({
   onPress: () => void;
 }) {
   const isDecline = status === "DECLINED";
-  const bg = isDecline ? "#FFFFFF" : stageColor(status);
+  // Every action that moves the mission forward is a go — green; declining is the
+  // only stop — red. All render as solid, white-on-colour buttons so intent is clear.
+  const bg = isDecline ? "#D92D20" : "#16A34A";
 
   return (
     <Pressable
       onPress={onPress}
       disabled={busy}
       accessibilityRole="button"
-      className={
-        "rounded-2xl p-4 active:opacity-90 " +
-        (isDecline ? "bg-safeplus-white border border-safeplus-border" : "shadow-sm")
-      }
-      style={{ backgroundColor: bg }}
+      className="flex-row items-center gap-3 active:opacity-90"
+      style={{
+        padding: 14,
+        borderRadius: 18,
+        backgroundColor: bg,
+        shadowColor: bg,
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 5,
+      }}
     >
-      <View className="flex-row items-center justify-between">
-        <Text
-          className="text-[17px] font-extrabold"
-          style={{ color: isDecline ? "#98A2B3" : "#FFFFFF" }}
-        >
-          {label}
-        </Text>
-        <Ionicons
-          name={isDecline ? "close-circle-outline" : "chevron-forward"}
-          size={22}
-          color={isDecline ? "#98A2B3" : "#FFFFFF"}
-        />
-      </View>
-      <Text
-        className="text-[12.5px] mt-1 leading-[17px]"
-        style={{ color: isDecline ? "#98A2B3" : "rgba(255,255,255,0.9)" }}
+      <View
+        className="items-center justify-center"
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          backgroundColor: "rgba(255,255,255,0.22)",
+        }}
       >
-        {hint}
-      </Text>
+        <Ionicons name={isDecline ? "close" : "arrow-forward"} size={20} color="#FFFFFF" />
+      </View>
+
+      <View className="flex-1">
+        <Text style={{ color: "#FFFFFF", fontSize: 16.5, fontWeight: "900" }}>{label}</Text>
+        <Text style={{ color: "rgba(255,255,255,0.92)", fontSize: 12.5, marginTop: 2, lineHeight: 17 }}>
+          {hint}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -450,7 +587,7 @@ function CountInput({
   color: string;
 }) {
   return (
-    <View className="flex-1 rounded-2xl bg-safeplus-white border border-safeplus-border p-3.5">
+    <View style={{ ...CARD.surface, flex: 1, padding: 14 }}>
       <View className="flex-row items-center gap-1.5 mb-1.5">
         <Ionicons name={icon} size={15} color={color} />
         <Text className="text-[11px] font-extrabold uppercase tracking-wide text-safeplus-muted">
@@ -484,10 +621,21 @@ function StageTrail({ roll }: { roll: MissionRoll }) {
   const steps = current >= 0 ? ordered : ordered.slice(0, Math.max(ordered.indexOf("RETURNING") + 1, 1));
 
   return (
-    <View className="mt-4 rounded-2xl bg-safeplus-white border border-safeplus-border p-4">
-      <Text className="text-[11px] font-extrabold uppercase tracking-wide text-safeplus-muted mb-3">
-        This mission · {STAGE_LABELS[roll.status]} · {ago(roll.updatedAt)}
-      </Text>
+    <View style={{ ...CARD.surface, padding: 16, marginBottom: 14 }}>
+      <View className="flex-row items-center justify-between mb-4">
+        <Text style={{ color: "#7A8699", fontSize: 11, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" }}>
+          Mission progress
+        </Text>
+        <View
+          className="flex-row items-center gap-1.5 px-2.5 py-1"
+          style={{ backgroundColor: `${stageColor(roll.status)}1A`, borderRadius: 999 }}
+        >
+          <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: stageColor(roll.status) }} />
+          <Text style={{ color: stageColor(roll.status), fontSize: 11.5, fontWeight: "900" }}>
+            {STAGE_LABELS[roll.status]}
+          </Text>
+        </View>
+      </View>
 
       <View className="flex-row items-center">
         {steps.map((step, index) => {
@@ -499,17 +647,17 @@ function StageTrail({ roll }: { roll: MissionRoll }) {
               <View
                 className="items-center justify-center rounded-full"
                 style={{
-                  width: 22,
-                  height: 22,
-                  backgroundColor: done ? stageColor(roll.status) : "#EAECF0",
+                  width: 24,
+                  height: 24,
+                  backgroundColor: done ? INK : "#EAECF0",
                 }}
               >
-                {done && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                {done && <Ionicons name="checkmark" size={15} color="#FFFFFF" />}
               </View>
               {!isLast && (
                 <View
                   className="flex-1 h-[3px] rounded-full"
-                  style={{ backgroundColor: index < current ? stageColor(roll.status) : "#EAECF0" }}
+                  style={{ backgroundColor: index < current ? INK : "#EAECF0" }}
                 />
               )}
             </View>
@@ -517,8 +665,8 @@ function StageTrail({ roll }: { roll: MissionRoll }) {
         })}
       </View>
 
-      <Text className="text-[13px] text-safeplus-navy font-semibold mt-3">
-        {STAGE_LABELS[roll.status]}
+      <Text style={{ color: "#7A8699", fontSize: 12, fontWeight: "600", marginTop: 14 }}>
+        Updated {ago(roll.updatedAt)}
         {roll.peopleRescued || roll.peopleEvacuated
           ? ` · ${roll.peopleRescued ?? 0} rescued, ${roll.peopleEvacuated ?? 0} evacuated`
           : ""}
@@ -527,85 +675,333 @@ function StageTrail({ roll }: { roll: MissionRoll }) {
   );
 }
 
-function ShelterArrivalCard({
-  onReport,
+/* The shelter the map should drive to: prefer the allocation that carries the
+   most people and has usable coordinates; fall back to any allocation, then to
+   the incident. A split plan still shows the smaller shelter as its own line. */
+function pickPrimaryShelter(assignments: ShelterAssignment[]): ShelterAssignment | null {
+  if (assignments.length === 0) return null;
+
+  const locatable = assignments.filter(
+    (item) => typeof item.latitude === "number" && typeof item.longitude === "number"
+  );
+  const pool = locatable.length > 0 ? locatable : assignments;
+
+  return pool.reduce((largest, item) => (item.allocatedCount > largest.allocatedCount ? item : largest));
+}
+
+function resolveMapTarget(
+  primaryShelter: ShelterAssignment | null,
+  scene: { destination: { lat: number; lng: number } | null } | null,
+  landmark?: string | null
+): { lat: number; lng: number; title: string; isShelter: boolean } | null {
+  if (
+    primaryShelter &&
+    typeof primaryShelter.latitude === "number" &&
+    typeof primaryShelter.longitude === "number"
+  ) {
+    return {
+      lat: primaryShelter.latitude,
+      lng: primaryShelter.longitude,
+      title: primaryShelter.name,
+      isShelter: true,
+    };
+  }
+
+  if (scene?.destination) {
+    return {
+      lat: scene.destination.lat,
+      lng: scene.destination.lng,
+      title: landmark || "Incident location",
+      isShelter: false,
+    };
+  }
+
+  return null;
+}
+
+function ShelterPanel({
+  assignments,
+  groupStatus,
   busy,
+  onNavigate,
+  onAck,
+  onReject,
+  onReport,
 }: {
-  onReport: () => Promise<string>;
+  assignments: ShelterAssignment[];
+  groupStatus: string | null;
   busy: boolean;
+  onNavigate: (destination: { lat: number; lng: number }) => void;
+  onAck: () => Promise<string>;
+  onReject: () => Promise<string>;
+  onReport: () => Promise<string>;
 }) {
-  const [state, setState] = useState<"idle" | "sending" | "done">("idle");
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [ackState, setAckState] = useState<"idle" | "sending">("idle");
+  const [ackError, setAckError] = useState<string | null>(null);
+  const [declining, setDeclining] = useState(false);
+  const [rejectState, setRejectState] = useState<"idle" | "sending">("idle");
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [reportState, setReportState] = useState<"idle" | "sending" | "done">("idle");
+  const [reportMessage, setReportMessage] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  // The group has moved past ALLOCATED once the leader has accepted; show that
+  // state honestly rather than offering the accept button a second time.
+  const heading = groupStatus === "IN_TRANSIT" || groupStatus === "ARRIVAL_REPORTED";
+
+  const accept = async () => {
+    if (ackState === "sending") return;
+
+    setAckState("sending");
+    setAckError(null);
+
+    try {
+      await onAck();
+    } catch (cause) {
+      setAckError(
+        cause instanceof Error ? cause.message : "The shelter plan could not be accepted. Try again."
+      );
+    } finally {
+      setAckState("idle");
+    }
+  };
+
+  // Declining releases the assigned beds so the district can find better ones.
+  // On success the plan is gone (the panel unmounts), so this only ever surfaces
+  // a failure to retry.
+  const decline = async () => {
+    if (rejectState === "sending") return;
+
+    setRejectState("sending");
+    setRejectError(null);
+
+    try {
+      await onReject();
+    } catch (cause) {
+      setRejectError(
+        cause instanceof Error ? cause.message : "The shelter plan could not be declined. Try again."
+      );
+      setDeclining(false);
+    } finally {
+      setRejectState("idle");
+    }
+  };
 
   const report = async () => {
-    if (state === "sending") return;
+    if (reportState === "sending") return;
 
-    setState("sending");
-    setError(null);
+    setReportState("sending");
+    setReportError(null);
 
     try {
       const text = await onReport();
 
-      setMessage(text);
-      setState("done");
+      setReportMessage(text);
+      setReportState("done");
     } catch (cause) {
-      setError(
+      setReportError(
         cause instanceof Error ? cause.message : "That arrival could not be sent. Try again."
       );
-      setState("idle");
+      setReportState("idle");
     }
   };
 
-  const done = state === "done";
-
   return (
-    <View className="mt-4 rounded-2xl bg-safeplus-white border border-safeplus-border p-4">
+    <View style={{ ...CARD.surface, padding: 16, marginBottom: 14 }}>
       <View className="flex-row items-center gap-2">
-        <View className="w-9 h-9 rounded-full bg-safeplus-lightBlue items-center justify-center">
+        <View className="items-center justify-center rounded-full w-9 h-9 bg-safeplus-lightBlue">
           <Ionicons name="business-outline" size={18} color="#1570EF" />
         </View>
         <View className="flex-1">
           <Text className="text-[15px] font-extrabold text-safeplus-navy">
-            Brought everyone to a shelter
+            {assignments.length > 1 ? "Shelters assigned to your group" : "Shelter assigned to your group"}
           </Text>
           <Text className="text-[12.5px] text-safeplus-muted mt-0.5 leading-[17px]">
-            Take the group to the shelter the district assigned, then tap to tell
-            them you have arrived. The shelter manager confirms the headcount.
+            The district has reserved these beds for the people you brought to
+            safety. Drive them there, then report you have arrived — the shelter
+            manager confirms the headcount.
           </Text>
         </View>
       </View>
 
-      {done && message ? (
-        <View className="mt-3 px-3.5 py-2.5 rounded-xl bg-safeplus-paleGreen border border-safeplus-lightGreen">
-          <Text className="text-[12.5px] font-semibold text-safeplus-darkGreen">
-            {message}
+      <View className="gap-2.5 mt-4">
+        {assignments.map((shelter) => (
+          <ShelterLine key={shelter.shelterId} shelter={shelter} onNavigate={onNavigate} />
+        ))}
+      </View>
+
+      {heading ? (
+        <View
+          className="mt-4 flex-row items-center gap-2 px-3.5 py-2.5 rounded-xl"
+          style={{ backgroundColor: "#ECFDF3", borderWidth: 1, borderColor: "#ABF2C4" }}
+        >
+          <Ionicons name="car-outline" size={16} color="#16A34A" />
+          <Text style={{ color: "#14532D", fontSize: 12.5, fontWeight: "800" }}>
+            Accepted — you are heading to the shelter.
           </Text>
         </View>
       ) : (
         <Pressable
-          onPress={() => void report()}
-          disabled={busy || state === "sending"}
+          onPress={() => void accept()}
+          disabled={busy || ackState === "sending"}
           accessibilityRole="button"
-          className={
-            "mt-3 flex-row items-center justify-center gap-2 h-12 rounded-2xl active:opacity-90 " +
-            (state === "sending" ? "bg-safeplus-border" : "bg-safeplus-navy")
-          }
+          className="mt-4 flex-row items-center justify-center gap-2 h-12 rounded-2xl active:opacity-90"
+          style={{ backgroundColor: "#16A34A" }}
         >
-          {state === "sending" ? (
+          {ackState === "sending" ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
           )}
           <Text className="text-[14px] font-extrabold text-white">
-            {state === "sending" ? "Reporting…" : "Report arrival at shelter"}
+            {ackState === "sending" ? "Accepting…" : "Accept, heading to shelter"}
           </Text>
         </Pressable>
       )}
 
-      {error && (
-        <Text className="text-[12.5px] font-semibold text-safeplus-red mt-2">{error}</Text>
+      {ackError ? (
+        <Text className="text-[12.5px] font-semibold text-safeplus-red mt-2">{ackError}</Text>
+      ) : null}
+
+      {!heading &&
+        (declining ? (
+          <View className="mt-3 gap-2">
+            <Text className="text-[12.5px] font-semibold text-safeplus-muted leading-[17px]">
+              These beds don&apos;t work for your group? Declining frees the reservation
+              and asks the district to reassign others.
+            </Text>
+            <View className="flex-row gap-2">
+              <Pressable
+                onPress={() => void decline()}
+                disabled={busy || rejectState === "sending"}
+                accessibilityRole="button"
+                className="flex-1 h-11 rounded-xl flex-row items-center justify-center gap-2 active:opacity-90"
+                style={{ backgroundColor: "#F04438" }}
+              >
+                {rejectState === "sending" ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="close-circle-outline" size={16} color="#FFFFFF" />
+                )}
+                <Text className="text-[13px] font-extrabold text-white">
+                  {rejectState === "sending" ? "Declining…" : "Confirm decline"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setDeclining(false)}
+                accessibilityRole="button"
+                className="flex-1 h-11 rounded-xl items-center justify-center"
+                style={{ backgroundColor: "#EEF2F7" }}
+              >
+                <Text className="text-[13px] font-extrabold text-safeplus-navy">Keep the beds</Text>
+              </Pressable>
+            </View>
+            {rejectError ? (
+              <Text className="text-[12.5px] font-semibold text-safeplus-red">{rejectError}</Text>
+            ) : null}
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => setDeclining(true)}
+            accessibilityRole="button"
+            className="mt-2.5 self-center py-1.5"
+          >
+            <Text className="text-[12.5px] font-bold text-safeplus-red underline">
+              These beds don&apos;t work — ask for others
+            </Text>
+          </Pressable>
+        ))}
+
+      {reportState === "done" && reportMessage ? (
+        <View className="mt-3 px-3.5 py-2.5 rounded-xl bg-safeplus-paleGreen border border-safeplus-lightGreen">
+          <Text className="text-[12.5px] font-semibold text-safeplus-darkGreen">{reportMessage}</Text>
+        </View>
+      ) : (
+        <Pressable
+          onPress={() => void report()}
+          disabled={busy || reportState === "sending"}
+          accessibilityRole="button"
+          className="mt-3 flex-row items-center justify-center gap-2 h-12 rounded-2xl active:opacity-90"
+          style={{ backgroundColor: INK, opacity: reportState === "sending" ? 0.7 : 1 }}
+        >
+          {reportState === "sending" ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name="location-outline" size={18} color="#FFFFFF" />
+          )}
+          <Text className="text-[14px] font-extrabold text-white">
+            {reportState === "sending" ? "Reporting…" : "Report arrival at shelter"}
+          </Text>
+        </Pressable>
       )}
+
+      {reportError ? (
+        <Text className="text-[12.5px] font-semibold text-safeplus-red mt-2">{reportError}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+function ShelterLine({
+  shelter,
+  onNavigate,
+}: {
+  shelter: ShelterAssignment;
+  onNavigate: (destination: { lat: number; lng: number }) => void;
+}) {
+  const hasCoords = typeof shelter.latitude === "number" && typeof shelter.longitude === "number";
+
+  return (
+    <View
+      className="flex-row items-center gap-3 p-3 rounded-2xl"
+      style={{ backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E4E9F2" }}
+    >
+      <View className="flex-1">
+        <Text style={{ color: INK, fontSize: 14, fontWeight: "900" }}>{shelter.name}</Text>
+        <Text style={{ color: "#5B6B7F", fontSize: 12, fontWeight: "700", marginTop: 1 }}>
+          {shelter.allocatedCount} {shelter.allocatedCount === 1 ? "place" : "places"} reserved
+        </Text>
+      </View>
+      {hasCoords ? (
+        <Pressable
+          onPress={() => onNavigate({ lat: shelter.latitude as number, lng: shelter.longitude as number })}
+          accessibilityRole="button"
+          className="flex-row items-center gap-1.5 px-3.5 py-2 rounded-xl active:opacity-80"
+          style={{ backgroundColor: INK }}
+        >
+          <Ionicons name="navigate-outline" size={15} color="#FFFFFF" />
+          <Text style={{ color: "#FFFFFF", fontSize: 12.5, fontWeight: "900" }}>Navigate</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function AwaitingShelterCard({ declined = false }: { declined?: boolean }) {
+  return (
+    <View style={{ ...CARD.surface, padding: 16, marginBottom: 14 }}>
+      <View className="flex-row items-center gap-2">
+        <View
+          className="items-center justify-center rounded-full w-9 h-9"
+          style={{ backgroundColor: "#FEF0C7" }}
+        >
+          <Ionicons
+            name={declined ? "repeat-outline" : "hourglass-outline"}
+            size={18}
+            color="#B54708"
+          />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[15px] font-extrabold text-safeplus-navy">
+            {declined ? "Waiting for new beds" : "Waiting for a shelter"}
+          </Text>
+          <Text className="text-[12.5px] text-safeplus-muted mt-0.5 leading-[17px]">
+            {declined
+              ? "You declined those beds. The district has been asked to reassign others — the new shelter will show here and on the map."
+              : "The rescue is done. The district is matching your group to an open shelter — as soon as one is assigned it will show here and on the map."}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -613,14 +1009,17 @@ function ShelterArrivalCard({
 function StandbyCard({ teamName }: { teamName: string }) {
   return (
     <View className="px-4">
-      <View className="items-center rounded-3xl bg-safeplus-white border border-safeplus-border px-6 py-10">
-        <View className="w-16 h-16 rounded-full bg-safeplus-lightGreen items-center justify-center mb-4">
-          <Ionicons name="radio-outline" size={30} color="#16A34A" />
+      <View style={{ ...CARD.surface, alignItems: "center", paddingVertical: 40, paddingHorizontal: 24 }}>
+        <View
+          className="items-center justify-center"
+          style={{ width: 76, height: 76, borderRadius: 38, backgroundColor: "#ECFDF3", marginBottom: 16 }}
+        >
+          <Ionicons name="radio-outline" size={34} color="#16A34A" />
         </View>
-        <Text className="text-[18px] font-extrabold text-safeplus-navy">
+        <Text style={{ color: INK, fontSize: 19, fontWeight: "900" }}>
           {teamName} is standing by
         </Text>
-        <Text className="text-[13.5px] text-safeplus-muted text-center mt-2 leading-5">
+        <Text style={{ color: "#5B6B7F", fontSize: 13.5, textAlign: "center", marginTop: 8, lineHeight: 20 }}>
           No mission right now. When the district tasks your team you will get a
           notification on this phone — keep it on and the sound up.
         </Text>

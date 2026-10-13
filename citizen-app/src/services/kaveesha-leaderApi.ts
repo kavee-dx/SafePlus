@@ -43,6 +43,16 @@ export interface DispatchEvent {
   createdAt: string;
 }
 
+/** One shelter the district has allocated to this mission's group. The largest
+ *  allocation drives the map; a split shows the rest as a secondary navigate. */
+export interface ShelterAssignment {
+  shelterId: string;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+  allocatedCount: number;
+}
+
 /** One mission as the leader sees it. The scene facts ride along so the phone
  *  can show where to go without a second request. */
 export interface MissionRoll {
@@ -74,6 +84,12 @@ export interface MissionRoll {
   immediateDanger?: boolean | null;
   dispatchedByName?: string | null;
   controlPhone?: string | null;
+  /** The incident's first photo as a stored data URL, present on the live mission. */
+  thumbnailUrl?: string | null;
+  /** Shelters the district allocated to this mission's group, once assigned. */
+  shelterAssignment?: ShelterAssignment[];
+  /** The evacuee group's status (AWAITING_SHELTER/ALLOCATED/IN_TRANSIT/...), if any. */
+  groupStatus?: string | null;
   events: DispatchEvent[];
 }
 
@@ -218,6 +234,56 @@ export async function reportShelterArrival(
   }
 }
 
+/**
+ * The leader's "accept, heading to shelter" tap. It moves the mission's evacuee
+ * group from ALLOCATED to IN_TRANSIT so the district and the shelter desk know
+ * the team is moving. After a mission completes there is no live dispatch, so the
+ * phone passes the real mission id the workspace handed back; when omitted the
+ * server falls back to "current" resolved from the login.
+ */
+export async function ackShelterAssignment(
+  token: string,
+  dispatchId?: string
+): Promise<string> {
+  const reference = dispatchId && dispatchId.trim() !== "" ? dispatchId.trim() : "current";
+
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/rescue-dispatch/dispatches/${encodeURIComponent(reference)}/shelter-ack`,
+      {},
+      request(token)
+    );
+
+    return (data?.message ?? "Shelter plan accepted.") as string;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/**
+ * The leader declines the shelter the district assigned — those beds do not work
+ * for the people they are bringing back. It releases the reservation and hands the
+ * group back to the district to reassign; the mission itself keeps running.
+ */
+export async function rejectShelterAssignment(
+  token: string,
+  dispatchId?: string
+): Promise<string> {
+  const reference = dispatchId && dispatchId.trim() !== "" ? dispatchId.trim() : "current";
+
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/rescue-dispatch/dispatches/${encodeURIComponent(reference)}/shelter-reject`,
+      {},
+      request(token)
+    );
+
+    return (data?.message ?? "Shelter plan declined.") as string;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
 /** The team's standing profile and its availability switch. */
 export async function fetchTeamDashboard(token: string): Promise<TeamDashboard> {
   try {
@@ -227,6 +293,75 @@ export async function fetchTeamDashboard(token: string): Promise<TeamDashboard> 
     );
 
     return data.data as TeamDashboard;
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * The leader's standing messages — the taskings and stand-downs that landed on
+ * the phone. The push is a banner that fades; this feed is read back from the
+ * server so nothing is lost while the handset had no signal. It rides the same
+ * user-scoped notifications endpoint the portal bell uses, and the server
+ * filters it to whoever the login belongs to — a leader never sees another's.
+ * ------------------------------------------------------------------ */
+
+export interface LeaderNotification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+  relatedReportId?: string | null;
+}
+
+export interface LeaderNotificationFeed {
+  items: LeaderNotification[];
+  unreadCount: number;
+}
+
+/** Newest first, with the unread count the header badge shows. */
+export async function fetchMyNotifications(
+  token: string
+): Promise<LeaderNotificationFeed> {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/notifications`, request(token));
+
+    const raw = (data?.notifications ?? []) as Record<string, unknown>[];
+
+    return {
+      items: raw.map((row) => ({
+        id: String(row.id),
+        type: String(row.type ?? ""),
+        title: String(row.title ?? ""),
+        message: String(row.message ?? ""),
+        isRead: Boolean(row.isRead),
+        createdAt: String(row.createdAt ?? ""),
+        relatedReportId:
+          row.relatedReportId === null || row.relatedReportId === undefined
+            ? null
+            : String(row.relatedReportId),
+      })),
+      unreadCount: Number(data?.unreadCount ?? 0),
+    };
+  } catch (error) {
+    throw toError(error);
+  }
+}
+
+/** Mark one message read. The server scopes it to the login, so an id from
+ *  another account simply no-ops there. */
+export async function markNotificationRead(
+  token: string,
+  notificationId: string
+): Promise<void> {
+  try {
+    await axios.put(
+      `${BASE_URL}/notifications/${encodeURIComponent(notificationId)}/read`,
+      {},
+      request(token)
+    );
   } catch (error) {
     throw toError(error);
   }
@@ -306,13 +441,13 @@ export const STAGE_ACTIONS: Record<string, StageMeta> = {
   },
   RETURNING: {
     label: "Returning",
-    hint: "The team is heading back to base.",
-    needsCounts: false,
+    hint: "On the way back — enter how many you rescued and evacuated, so the district can find shelters for them now.",
+    needsCounts: true,
   },
   COMPLETED: {
     label: "Mission complete",
-    hint: "Everyone is back. Enter how many you brought to safety.",
-    needsCounts: true,
+    hint: "Everyone is settled. Finish the mission and it moves to your history.",
+    needsCounts: false,
   },
 };
 
