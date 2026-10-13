@@ -261,7 +261,7 @@ export default function ClearancePinCard() {
             border-radius: 12px;
             background: ${RedTint};
             color: ${RedText};
-            border: 1px solid #FDA29B;
+            border: 1px solid ${Console.redSoft};
             display: flex;
             align-items: center;
             justify-content: center;
@@ -320,19 +320,19 @@ export default function ClearancePinCard() {
           .pin-banner-ok {
             background: ${GreenTint};
             color: ${GreenText};
-            border-color: #A7F3C0;
+            border-color: ${Console.greenSoft};
           }
 
           .pin-banner-warn {
             background: ${Console.amberTint};
             color: ${Console.amberInk};
-            border-color: #FDCF5F;
+            border-color: ${Console.amber};
           }
 
           .pin-banner-error {
             background: ${RedTint};
             color: ${RedText};
-            border-color: #FDA29B;
+            border-color: ${Console.redSoft};
           }
 
           .pin-form {
@@ -363,8 +363,9 @@ export default function ClearancePinCard() {
             letter-spacing: 0.28em;
             font-variant-numeric: tabular-nums;
             color: ${Ink};
-            background: ${Card};
+            background: ${Console.surfaceHi};
             caret-color: ${Console.red};
+            box-shadow: ${ShadowCard};
             transition: border-color 140ms ease, box-shadow 140ms ease;
           }
 

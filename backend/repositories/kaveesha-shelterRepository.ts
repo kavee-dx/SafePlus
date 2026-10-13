@@ -12,6 +12,7 @@ import type {
   ShelterManager,
   ShelterRoll,
 } from "../models/kaveesha-shelter";
+import type { ShelterAssignment } from "../models/kaveesha-rescueDispatch";
 
 /* ------------------------------------------------------------------ *
  * Data access for Shelter Coordination.
@@ -418,7 +419,7 @@ export async function listGroups(
   }
 
   if (openOnly) {
-    sql += ` AND g.status IN ('AWAITING_SHELTER', 'ALLOCATED', 'IN_TRANSIT', 'ARRIVAL_REPORTED')`;
+    sql += ` AND g.status IN ('AWAITING_SHELTER', 'ALLOCATED', 'IN_TRANSIT', 'ARRIVAL_REPORTED', 'DECLINED')`;
   }
 
   sql += " ORDER BY g.created_at DESC";
@@ -439,6 +440,61 @@ export async function groupExistsForDispatch(dispatchId: string): Promise<boolea
     [dispatchId]
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+/**
+ * The whole group a rescue mission produced, read back by its dispatch id — the
+ * officer's "allocate shelter" panel needs the id, headcount and origin point to
+ * recommend and reserve beds, not just the pending lines. Null when the mission
+ * has not raised a shelter request yet.
+ */
+export async function findGroupByDispatch(dispatchId: string): Promise<EvacueeGroup | null> {
+  const result = await pool.query(`${GROUP_SELECT} WHERE g.source_dispatch_id = $1`, [
+    dispatchId,
+  ]);
+  return result.rows[0] ? toGroup(result.rows[0]) : null;
+}
+
+/**
+ * The shelter(s) a dispatch's rescued group is currently reserved to, for the
+ * leader's phone. Reads the group by its source dispatch, then one row per
+ * PENDING allocation (a group split across two shelters yields two, biggest
+ * first). The live group status rides along even when nothing is pending, so a
+ * mission can still tell the leader the people are already in. No group is an
+ * empty assignment with a null status - the phone then shows no shelter yet.
+ */
+export async function findPendingAssignmentForDispatch(
+  dispatchId: string
+): Promise<{ groupStatus: string | null; assignments: ShelterAssignment[] }> {
+  const groupRes = await pool.query(
+    `SELECT id, status FROM evacuee_groups WHERE source_dispatch_id = $1 LIMIT 1`,
+    [dispatchId]
+  );
+
+  const group = groupRes.rows[0] as Row | undefined;
+
+  if (!group) return { groupStatus: null, assignments: [] };
+
+  const allocRes = await pool.query(
+    `SELECT s.id AS shelter_id, s.name AS shelter_name,
+            s.latitude AS shelter_latitude, s.longitude AS shelter_longitude,
+            a.allocated_count
+       FROM shelter_allocations a
+       JOIN shelters s ON s.id = a.shelter_id
+      WHERE a.group_id = $1 AND a.status = 'PENDING'
+      ORDER BY a.allocated_count DESC, s.name ASC`,
+    [text(group.id)]
+  );
+
+  const assignments: ShelterAssignment[] = allocRes.rows.map((row: Row) => ({
+    shelterId: text(row.shelter_id),
+    name: text(row.shelter_name),
+    latitude: optionalNum(row.shelter_latitude) ?? null,
+    longitude: optionalNum(row.shelter_longitude) ?? null,
+    allocatedCount: num(row.allocated_count),
+  }));
+
+  return { groupStatus: text(group.status), assignments };
 }
 
 export interface NewGroupInput {
@@ -486,6 +542,24 @@ export async function setGroupStatus(
   await client.query(
     "UPDATE evacuee_groups SET status = $2, updated_at = NOW() WHERE id = $1",
     [id, status]
+  );
+}
+
+/**
+ * Correct a group's headcount while it is still awaiting a shelter. Once beds are
+ * reserved (or people are on their way) the number is fixed, because the
+ * allocation total is checked against it — so this guards on the status itself.
+ */
+export async function setGroupPeopleCount(
+  client: Q,
+  id: string,
+  peopleCount: number
+): Promise<void> {
+  await client.query(
+    `UPDATE evacuee_groups
+        SET people_count = $2, updated_at = NOW()
+      WHERE id = $1 AND status = 'AWAITING_SHELTER'`,
+    [id, peopleCount]
   );
 }
 

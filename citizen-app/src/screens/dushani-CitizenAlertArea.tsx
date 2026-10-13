@@ -25,8 +25,8 @@ import MyReportsScreen from "./amasha-MyReportsScreen";
 import ReportHazardScreen from "./amasha-ReportHazardScreen";
 import MyDeliveriesScreen from "./dildhara-MyDeliveriesScreen";
 import { startOfflineSync } from "../services/amasha-offlineSync";
-
-type Overlay = "none" | "report" | "mine" | "alerts" | "deliveries";
+import KaveeshaNearbySheltersScreen from "./kaveesha-NearbySheltersScreen";
+type Overlay = "none" | "report" | "mine" | "alerts" | "relief";
 type PushState = "unknown" | "ready" | "blocked" | "unsupported";
 
 /** An emergency text is worth waiting for, but not worth a websocket. */
@@ -242,10 +242,6 @@ export default function CitizenAlertArea({
     return startOfflineSync(token, account.id);
   }, [token, account.id]);
 
-  // TODO: open the relief centres screen once it is built
-  // (add "relief" to Overlay and call setOverlay("relief") here).
-  const handleFindReliefCenters = () => {};
-
   // A broadcast should land like a system warning, so the banner slides in
   // instead of simply appearing already on screen.
   const bannerVisible = unreadCount > 0;
@@ -334,6 +330,15 @@ export default function CitizenAlertArea({
     );
   }
 
+  if (overlay === "relief") {
+    return (
+      <KaveeshaNearbySheltersScreen
+        token={token}
+        onBack={() => setOverlay("none")}
+      />
+    );
+  }
+
   return (
     <View className="flex-1 bg-safeplus-background">
       <HomeScreen
@@ -347,7 +352,7 @@ export default function CitizenAlertArea({
         }}
         onOpenMyReports={() => setOverlay("mine")}
         onOpenAlerts={() => setOverlay("alerts")}
-        onFindReliefCenters={handleFindReliefCenters}
+        onFindReliefCenters={() => setOverlay("relief")}
         onAlertsChanged={() => setPollToken((current) => current + 1)}
         onOpenDeliveries={() => setOverlay("deliveries")}
       />

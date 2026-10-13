@@ -152,7 +152,7 @@ export default function KaveeshaIncidentResponse({
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ url: string; label: string } | null>(null);
-  const [showAllExcluded, setShowAllExcluded] = useState(false);
+  const [showMutualAid, setShowMutualAid] = useState(false);
   /* The live feed: whether the district's stream is held open right now, and the
      last thing that moved on it. Shown so the officer can trust that what they
      are reading is the field as it is, not as it was twenty seconds ago. */
@@ -164,6 +164,7 @@ export default function KaveeshaIncidentResponse({
   const [closePanel, setClosePanel] = useState(false);
   const [closeNote, setCloseNote] = useState("");
   const sentRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLDivElement | null>(null);
 
   const loading = !ready;
 
@@ -449,6 +450,27 @@ export default function KaveeshaIncidentResponse({
   /* Held in a memo of its own: the map and the ranking both read this list, and a
      fresh array on every render would throw their work away each time. */
   const candidates = useMemo(() => detail?.candidates ?? [], [detail]);
+  
+    /* In-district teams answer the call first. Mutual aid from neighbouring
+       districts is held behind a toggle, so the officer is not shown the whole
+       island by default — but with no free team in-district it reveals itself,
+       because mutual aid is then the only recourse there is. */
+    const localCandidates = useMemo(
+      () => candidates.filter((team) => !team.outsideDistrict),
+      [candidates]
+    );
+    const mutualAidCandidates = useMemo(
+      () => candidates.filter((team) => team.outsideDistrict),
+      [candidates]
+    );
+    const revealMutualAid = showMutualAid || localCandidates.length === 0;
+    const visibleCandidates = useMemo(
+      () =>
+        revealMutualAid
+          ? [...localCandidates, ...mutualAidCandidates]
+          : localCandidates,
+      [localCandidates, mutualAidCandidates, revealMutualAid]
+    );
   const photos = detail
     ? detail.evidence.filter((file) => file.fileKind === "PHOTO")
     : [];
@@ -524,7 +546,7 @@ export default function KaveeshaIncidentResponse({
       });
     });
 
-    candidates.forEach((candidate, index) => {
+    visibleCandidates.forEach((candidate, index) => {
       if (
         typeof candidate.baseLatitude !== "number" ||
         typeof candidate.baseLongitude !== "number" ||
@@ -554,7 +576,7 @@ export default function KaveeshaIncidentResponse({
     });
 
     return list;
-  }, [candidates, detail, liveMissions, pickedTeam, point]);
+  }, [visibleCandidates, detail, liveMissions, pickedTeam, point]);
 
   const lines = useMemo<ResponseMapLine[]>(() => {
     if (!point) return [];
@@ -579,7 +601,7 @@ export default function KaveeshaIncidentResponse({
       });
     });
 
-    candidates
+    visibleCandidates
       .filter(
         (candidate) =>
           typeof candidate.baseLatitude === "number" &&
@@ -598,7 +620,7 @@ export default function KaveeshaIncidentResponse({
       });
 
     return drawn;
-  }, [candidates, liveMissions, point]);
+  }, [visibleCandidates, liveMissions, point]);
 
   /* The two things an officer actually wants shouted at them: a team that has
      gone quiet, and a team that has come back. Both mean the same action — send
@@ -673,6 +695,24 @@ export default function KaveeshaIncidentResponse({
                 ? "Finished"
                 : "No mission running"}
           </span>
+          {canClose && (
+            <button
+              type="button"
+              className="kdx-btn kyp-bar-close"
+              onClick={() => {
+                setClosePanel(true);
+                requestAnimationFrame(() =>
+                  closeRef.current?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                  })
+                );
+              }}
+            >
+              <Flag size={15} />
+              Close incident
+            </button>
+          )}
           <button
             type="button"
             className="kdx-btn kdx-btn-sm"
@@ -991,7 +1031,7 @@ export default function KaveeshaIncidentResponse({
               {/* The closing line is only offered once every team is back. A
                   mission still running means there is nothing to close yet. */}
               {canClose && (
-                <div className="kyp-close">
+                <div className="kyp-close" ref={closeRef}>
                   <div className="kyp-close-lead">
                     <Flag size={16} />
                     <span>
@@ -1165,6 +1205,8 @@ export default function KaveeshaIncidentResponse({
                     roll={roll}
                     showIncident={false}
                     busy={busyId === roll.id}
+                    token={token}
+                    district={district}
                     onStandDown={isLiveStage(roll.status) ? standDown : undefined}
                   />
                 ))}
@@ -1182,7 +1224,13 @@ export default function KaveeshaIncidentResponse({
               <span className="kyp-section-sub">
                 {candidates.length === 0
                   ? "none free right now"
-                  : `${candidates.length} ranked by reach, capability, workload, readiness`}
+                  : `${localCandidates.length} in ${detail.locationDistrict}${
+                      mutualAidCandidates.length > 0
+                        ? revealMutualAid
+                          ? ` · ${mutualAidCandidates.length} mutual aid shown`
+                          : ` · ${mutualAidCandidates.length} more as mutual aid`
+                        : ""
+                    }`}
               </span>
             </div>
 
@@ -1202,55 +1250,80 @@ export default function KaveeshaIncidentResponse({
                 </span>
               </div>
             ) : (
-              <div className="kdx-teams">
-                {candidates.map((candidate, index) => (
-                  <TeamRow
-                    key={candidate.teamId}
-                    candidate={candidate}
-                    rank={index + 1}
-                    picked={pickedTeam === candidate.teamId}
-                    busy={submitting}
-                    onPick={() =>
-                      setPickedTeam(
-                        pickedTeam === candidate.teamId ? null : candidate.teamId
-                      )
-                    }
-                    onTask={() => openDispatch(candidate)}
-                  />
-                ))}
-              </div>
-            )}
+              <>
+                {localCandidates.length > 0 && (
+                  <div className="kdx-teams">
+                    {localCandidates.map((candidate, index) => (
+                      <TeamRow
+                        key={candidate.teamId}
+                        candidate={candidate}
+                        rank={index + 1}
+                        picked={pickedTeam === candidate.teamId}
+                        busy={submitting}
+                        onPick={() =>
+                          setPickedTeam(
+                            pickedTeam === candidate.teamId ? null : candidate.teamId
+                          )
+                        }
+                        onTask={() => openDispatch(candidate)}
+                      />
+                    ))}
+                  </div>
+                )}
 
-            {detail.excluded.length > 0 && (
-              <details className="kyp-excluded">
-                <summary className="kyp-excluded-summary">
-                  {detail.excluded.length} team
-                  {detail.excluded.length === 1 ? " is" : "s are"} held back — why
-                </summary>
+                {mutualAidCandidates.length > 0 &&
+                  (revealMutualAid ? (
+                    <div className="kyp-mutual">
+                      <div className="kyp-mutual-head">
+                        <MapPin size={13} />
+                        <span>
+                          Mutual aid
+                          {localCandidates.length === 0
+                            ? ` — no team is free in ${detail.locationDistrict}`
+                            : " from neighbouring districts"}
+                        </span>
+                        {localCandidates.length > 0 && (
+                          <button
+                            type="button"
+                            className="kdx-btn kdx-btn-sm"
+                            onClick={() => setShowMutualAid(false)}
+                          >
+                            <X size={13} />
+                            Hide
+                          </button>
+                        )}
+                      </div>
 
-                <div className="kdx-chip-row" style={{ marginTop: 10 }}>
-                  {(showAllExcluded ? detail.excluded : detail.excluded.slice(0, 24)).map(
-                    (team) => (
-                      <span key={team.teamId} className="kdx-chip" title={team.reason}>
-                        <Ban size={10} />
-                        {team.teamName} — {team.reason}
-                      </span>
-                    )
-                  )}
-
-                  {detail.excluded.length > 24 && (
+                      <div className="kdx-teams">
+                        {mutualAidCandidates.map((candidate, index) => (
+                          <TeamRow
+                            key={candidate.teamId}
+                            candidate={candidate}
+                            rank={localCandidates.length + index + 1}
+                            picked={pickedTeam === candidate.teamId}
+                            busy={submitting}
+                            onPick={() =>
+                              setPickedTeam(
+                                pickedTeam === candidate.teamId ? null : candidate.teamId
+                              )
+                            }
+                            onTask={() => openDispatch(candidate)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      className="kdx-btn kdx-btn-sm"
-                      onClick={() => setShowAllExcluded((open) => !open)}
+                      className="kyp-mutual-cta"
+                      onClick={() => setShowMutualAid(true)}
                     >
-                      {showAllExcluded
-                        ? "Show fewer"
-                        : `Show the other ${detail.excluded.length - 24}`}
+                      <MapPin size={14} />
+                      Show {mutualAidCandidates.length} mutual-aid team
+                      {mutualAidCandidates.length === 1 ? "" : "s"} from other districts
                     </button>
-                  )}
-                </div>
-              </details>
+                  ))}
+              </>
             )}
           </div>
         </>

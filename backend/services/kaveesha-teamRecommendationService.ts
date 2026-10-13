@@ -4,6 +4,7 @@ import {
   type TeamCandidate,
 } from "../models/kaveesha-rescueDispatch";
 import { type TeamCandidateRow, listTeamCandidates } from "../repositories/kaveesha-dispatchRepository";
+import { getDistrictBoundaryService } from "./dushani-districtBoundaryService";
 
 /* ------------------------------------------------------------------ *
  * Smart rescue team recommendation.
@@ -128,6 +129,13 @@ function profileFor(hazardType: string): HazardProfile {
   return HAZARD_PROFILES[hazardType.toUpperCase()] ?? HAZARD_PROFILES.OTHER;
 }
 
+/**
+ * Support capabilities that nearly every team carries. They help at an incident
+ * but do not make a team a fit for a specific disaster, so they are not allowed
+ * to qualify a team on their own in the relevance gate below.
+ */
+const GENERIC_SUPPORT_CAPABILITIES = new Set(["evacuation"]);
+
 /** Straight-line bands. The UI always says "as-the-crow-flies". */
 function reachScore(distanceKm: number): number {
   if (distanceKm <= 2) return 100;
@@ -232,7 +240,10 @@ export async function recommendTeams(
   options: { radiusKm?: number; limit?: number; routePenalty?: number } = {}
 ): Promise<Recommendation> {
   const radiusKm = options.radiusKm ?? 60;
-  const limit = options.limit ?? 12;
+  // No hard cap by default: the list is already narrowed to teams that cover
+  // this disaster, so an officer should see every available one, not the first
+  // twelve. A caller can still pass an explicit limit.
+  const limit = options.limit ?? Infinity;
   const routePenalty = options.routePenalty ?? 1;
 
   const notes: string[] = [];
@@ -259,6 +270,9 @@ export async function recommendTeams(
   const profile = profileFor(incident.hazardType);
   const candidates: TeamCandidate[] = [];
   const excluded: ExcludedTeam[] = [];
+  let unfitCount = 0;
+  let seaCount = 0;
+  const boundaries = getDistrictBoundaryService();
 
   for (const row of rows) {
     const base = {
@@ -309,6 +323,29 @@ export async function recommendTeams(
       continue;
     }
 
+    // Relevance gate: a team that carries nothing for this disaster is not
+    // offered. It is left off entirely rather than padding the ranking with an
+    // option the officer would only have to discard — the list now reads as the
+    // teams that can actually work this incident, not every free team on file.
+    if (!isRelevantToProfile(row, profile)) {
+      unfitCount += 1;
+
+      continue;
+    }
+
+    // A team whose base pin falls in the sea is not a team that can move — its
+    // location was saved offshore, so it is dropped rather than plotted on the
+    // water. resolveDistrict returns undefined for any point outside the land.
+    if (
+      typeof row.baseLatitude === "number" &&
+      typeof row.baseLongitude === "number" &&
+      !boundaries.resolveDistrict({ lat: row.baseLatitude, lng: row.baseLongitude })
+    ) {
+      seaCount += 1;
+
+      continue;
+    }
+
     const outsideDistrict = row.district !== incident.locationDistrict;
     const reachBase = reachScore(row.distanceKm);
     const reach = outsideDistrict
@@ -335,7 +372,7 @@ export async function recommendTeams(
     } else if (capability >= 70) {
       reasons.push(`Carries the ${profile.capabilities[0]} capability`);
     } else {
-      reasons.push("No disaster-specific fit for this incident");
+      reasons.push(`Backs ${humanize(incident.hazardType)} operations`);
     }
 
     if (outsideDistrict) {
@@ -395,6 +432,24 @@ export async function recommendTeams(
 
   candidates.sort((a, b) => b.score - a.score || a.distanceKm - b.distanceKm);
 
+  if (unfitCount > 0) {
+    notes.push(
+      `${unfitCount} otherwise-free team${
+        unfitCount === 1 ? "" : "s"
+      } offered no team type or disaster capability fit for ${humanize(
+        incident.hazardType
+      )}, so ${unfitCount === 1 ? "it is" : "they are"} not listed here.`
+    );
+  }
+
+  if (seaCount > 0) {
+    notes.push(
+      `${seaCount} team${
+        seaCount === 1 ? " was" : "s were"
+      } dropped because their base pin sits in the sea, not on land.`
+    );
+  }
+
   if (incident.immediateDanger || incident.severityLevel === "CRITICAL") {
     notes.push(
       "Danger to life is flagged, so mutual-aid teams from neighbouring districts are listed as well."
@@ -422,6 +477,28 @@ function typeFits(teamType: string | undefined, profile: HazardProfile): boolean
   const type = (teamType ?? "").trim();
 
   return type !== "" && profile.teamTypes.includes(type);
+}
+
+/**
+ * Is this team a team for THIS disaster? A matching team type, or a capability
+ * that is specific to the hazard, makes it relevant. A generic support tag such
+ * as Evacuation is not enough on its own — almost every team carries it, and
+ * keying on it would offer the whole register for a flood. Equipment is a bonus
+ * reason, not a qualification, so it is deliberately left out of the gate here.
+ */
+function isRelevantToProfile(
+  row: TeamCandidateRow,
+  profile: HazardProfile
+): boolean {
+  if (typeFits(row.teamType, profile)) return true;
+
+  const tags = row.capabilities.map((tag) => tag.trim().toLowerCase());
+
+  return profile.capabilities.some(
+    (cap) =>
+      !GENERIC_SUPPORT_CAPABILITIES.has(cap.trim().toLowerCase()) &&
+      tags.includes(cap.trim().toLowerCase())
+  );
 }
 
 const HAZARD_LABELS: Record<string, string> = {

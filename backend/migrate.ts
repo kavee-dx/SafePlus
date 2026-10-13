@@ -51,8 +51,10 @@ async function migrate() {
       "kaveesha-shelters.sql",
       "kaveesha-shelter_managers.sql",
       "kaveesha-evacuee_groups.sql",
+      "kaveesha-evacuee_groups_declined.sql",
       "kaveesha-shelter_allocations.sql",
-      "kaveesha-shelter_events.sql"
+      "kaveesha-shelter_events.sql",
+      "kaveesha-dispatch_notifications_type.sql"
     ];
 
     for (const file of migrationFiles) {

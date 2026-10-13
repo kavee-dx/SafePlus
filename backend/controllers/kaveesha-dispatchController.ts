@@ -10,12 +10,16 @@ import {
   dispatchStatusCatalog,
   dispatchTeam,
   incidentDetail,
+  leaderAcksShelterAssignment,
+  leaderRejectsShelterAssignment,
   leaderReportsShelterArrival,
   leaderWorkspace,
   listIncidents,
   officerOperations,
+  readShelterGroupForDispatch,
   recommendForIncident,
   reopenIncident,
+  requestShelterForDispatch,
 } from "../services/kaveesha-dispatchService";
 import { subscribeDispatchEvents } from "../services/kaveesha-dispatchEvents";
 import { findIncident } from "../repositories/kaveesha-dispatchRepository";
@@ -318,4 +322,82 @@ export async function shelterArrival(req: Request, res: Response): Promise<void>
 /** GET /api/rescue-dispatch/stages — the catalog, so clients list it, not hardcode it. */
 export function stages(_req: Request, res: Response): void {
   res.json({ stages: dispatchStatusCatalog() });
+}
+
+/**
+ * POST /api/rescue-dispatch/dispatches/:id/shelter-ack — the leader's "accepted,
+ * we are heading to the shelter" tap. It moves the rescued group to IN_TRANSIT so
+ * the shelter desk can expect them; the arrival and headcount still come after.
+ */
+export async function shelterAck(req: Request, res: Response): Promise<void> {
+  const userId = actor(req).userId;
+  const reference = param(req.params.id);
+  const dispatchId =
+    reference === "" || reference.toLowerCase() === "current"
+      ? undefined
+      : reference;
+
+  const { dispatch, group } = await leaderAcksShelterAssignment(userId, dispatchId);
+
+  res.json({
+    message: group
+      ? `Shelter plan accepted for ${dispatch.dispatchCode}. Drive the group to the assigned shelter.`
+      : `There is no open shelter plan to accept for ${dispatch.dispatchCode}.`,
+    group,
+  });
+}
+
+/**
+ * POST /api/rescue-dispatch/dispatches/:id/shelter-request — the district officer
+ * raising a shelter need for a mission before it is completed. Idempotent: it
+ * returns the mission's existing awaiting-shelter group or creates one, so the
+ * allocation desk can open with real data rather than waiting on COMPLETED.
+ */
+export async function shelterRequest(req: Request, res: Response): Promise<void> {
+  const context = await buildOfficerContext(req.user!.sub, req.user!.role);
+  const raw = (req.body as { peopleCount?: unknown } | undefined)?.peopleCount;
+  const peopleCount =
+    typeof raw === "number" && Number.isFinite(raw) ? Math.trunc(raw) : undefined;
+
+  const group = await requestShelterForDispatch(context, param(req.params.id), peopleCount);
+
+  res.json({
+    message: `${group.groupCode} (${group.peopleCount} people) is ready to allocate.`,
+    group,
+  });
+}
+
+/**
+ * POST /api/rescue-dispatch/dispatches/:id/shelter-reject — the leader's "we
+ * can't use those beds" tap. It releases the reservation and returns the group to
+ * the district to reassign; the mission itself keeps running.
+ */
+export async function shelterReject(req: Request, res: Response): Promise<void> {
+  const userId = actor(req).userId;
+  const reference = param(req.params.id);
+  const dispatchId =
+    reference === "" || reference.toLowerCase() === "current"
+      ? undefined
+      : reference;
+
+  const { dispatch, group } = await leaderRejectsShelterAssignment(userId, dispatchId);
+
+  res.json({
+    message: group
+      ? `Shelter plan declined for ${dispatch.dispatchCode}. The district has been asked to reassign.`
+      : `There was no open shelter plan to decline for ${dispatch.dispatchCode}.`,
+    group,
+  });
+}
+
+/**
+ * GET /api/rescue-dispatch/dispatches/:id/shelter-group — the officer's live read
+ * of a mission's shelter handoff (status, the beds it holds, and how the team has
+ * responded). Read-only: it never raises or corrects the group.
+ */
+export async function shelterGroup(req: Request, res: Response): Promise<void> {
+  const context = await buildOfficerContext(req.user!.sub, req.user!.role);
+  const group = await readShelterGroupForDispatch(context, param(req.params.id));
+
+  res.json({ group });
 }

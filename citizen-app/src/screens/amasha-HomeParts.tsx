@@ -15,7 +15,6 @@ export interface HomeProps {
   onOpenAlerts?: () => void;
   onFindReliefCenters?: () => void;
   unreadCount?: number;
-  /** Generic handler for other roles' actions, keyed by action key. */
   onAction?: (key: string) => void;
 }
 

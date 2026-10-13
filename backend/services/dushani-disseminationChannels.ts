@@ -3,7 +3,10 @@ import {
   ChannelType,
   type DisasterWarning,
 } from "../models/disasterWarning";
-import { alertLevelLabel } from "./dushani-smsGatewayService";
+import {
+  alertLevelLabel,
+  toInternationalMsisdn,
+} from "./dushani-smsGatewayService";
 
 export interface AlertRecipient {
   userId: string;
@@ -42,6 +45,8 @@ export interface ChannelResult {
 
 export interface DisseminationChannel {
   readonly channelType: ChannelType;
+  /** How long the dispatcher waits before calling this channel dead; defaults to the receipt window. */
+  readonly deadlineMs?: number;
   send(request: DispatchRequest): Promise<ChannelResult>;
 }
 
@@ -317,7 +322,7 @@ export class PushAlertChannel implements DisseminationChannel {
         deliveryCount: 0,
         failureCount: 0,
         elapsedMs: Date.now() - startedAt,
-        errorMessage: `No phone in ${request.targetDistrict} District has notifications enabled, so no push notification was sent.`,
+        errorMessage: `No account in ${request.targetDistrict} District has a registered push token, so no notification was sent.`,
         simulated: false,
       };
     }
@@ -428,7 +433,11 @@ export class ChannelDispatcher {
 
         return [
           channelType,
-          await withDeadline(channel, request, this.receiptWindowMs),
+          await withDeadline(
+            channel,
+            request,
+            channel.deadlineMs ?? this.receiptWindowMs
+          ),
         ] as const;
       })
     );
@@ -442,7 +451,7 @@ export class ChannelDispatcher {
       push && push.targetCount > 0 ? push.deliveryCount / push.targetCount : 1;
 
     const smsCapable = recipients.filter((recipient) =>
-      Boolean(recipient.phoneNumber)
+      recipient.phoneNumber ? toInternationalMsisdn(recipient.phoneNumber) !== null : false
     ).length;
 
     const needsFallback =
@@ -457,7 +466,10 @@ export class ChannelDispatcher {
       const sms = this.channels.get(ChannelType.SMS);
 
       if (sms) {
-        results.set(ChannelType.SMS, await withDeadline(sms, request, this.receiptWindowMs));
+        results.set(
+          ChannelType.SMS,
+          await withDeadline(sms, request, sms.deadlineMs ?? this.receiptWindowMs)
+        );
         smsFallbackTriggered = true;
       }
     }

@@ -1,5 +1,10 @@
 import { Colors } from "../constants/theme";
 
+/* Numerals are set in a mono face wherever a column of figures must be read
+ * across and compared, so the shelter ledger lines up like the incident desk. */
+const Mono =
+  "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
+
 /* ------------------------------------------------------------------ *
  * Dispatch board styling (prefix kdx-).
  *
@@ -593,17 +598,36 @@ export const DISPATCH_CSS = `
     color: ${Colors.white};
   }
 
-  /* Closing an incident is a deliberate, calm act — not the green of "go" and
-     not the red of "danger" — so it borrows the settled navy of finished work. */
+  /* Closing an incident is a deliberate act the officer asked to see clearly, so
+     it is a filled red — larger than the surrounding controls — and it is echoed
+     as a prominent button beside the incident at the top of the page. */
   .kdx-btn-close {
-    background: ${Colors.navy};
-    border-color: ${Colors.navy};
+    background: ${Colors.red};
+    border-color: ${Colors.red};
     color: ${Colors.white};
   }
 
   .kdx-btn-close:hover:not(:disabled) {
-    background: ${Colors.navyLight};
-    border-color: ${Colors.navyLight};
+    background: ${Colors.redDark};
+    border-color: ${Colors.redDark};
+    color: ${Colors.white};
+  }
+
+  /* The header's close affordance: impossible to miss, sitting by the incident. */
+  .kyp-bar-close {
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 800;
+    gap: 7px;
+    background: ${Colors.red};
+    border-color: ${Colors.red};
+    color: ${Colors.white};
+    box-shadow: 0 6px 16px -8px rgba(217, 45, 32, .6);
+  }
+
+  .kyp-bar-close:hover:not(:disabled) {
+    background: ${Colors.redDark};
+    border-color: ${Colors.redDark};
     color: ${Colors.white};
   }
 
@@ -770,6 +794,15 @@ export const DISPATCH_CSS = `
   .kdx-step-done { background: rgba(18, 183, 106, 0.12); border-color: ${Colors.success}; color: #0A7A47; }
 
   .kdx-step-now { background: ${Colors.navy}; border-color: ${Colors.navy}; color: ${Colors.white}; }
+
+  /* The officer's per-mission stage strip: the live step reads as "happening now"
+     with an attention amber and a soft glow, distinct from the green done steps. */
+  .kdx-mission .kdx-step-now {
+    background: #F79009;
+    border-color: #F79009;
+    color: #FFFFFF;
+    box-shadow: 0 1px 6px rgba(247, 144, 9, 0.42);
+  }
 
   .kdx-trail { display: flex; flex-direction: column; gap: 0; }
 
@@ -1595,9 +1628,20 @@ export const RESPONSE_CSS = `
 
   .kyp-hero-call-name { font-size: 13px; font-weight: 700; color: ${Colors.navy}; }
 
-  .kyp-hero-strip { margin-top: 13px; }
+  /* The incident's own evidence reads as a large image, not a strip of tiny
+     thumbnails: these overrides (later in the sheet, so they win the tie with
+     the generic .kdx-gallery) widen each tile and give it a landscape frame. */
+  .kyp-hero-strip {
+    margin-top: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
 
-  .kyp-hero-strip button { position: relative; }
+  .kyp-hero-strip button {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    border-radius: 14px;
+  }
 
   .kyp-hero-strip-count {
     position: absolute;
@@ -1801,15 +1845,52 @@ export const RESPONSE_CSS = `
 
   .kyp-quiet svg { flex: 0 0 auto; margin-top: 2px; color: ${Colors.blue}; }
 
-  .kyp-excluded { padding-top: 2px; }
+  /* Mutual aid — the other-district teams the officer asks for on purpose. They
+     sit below the in-district list behind a toggle, so only the local answer is
+     shown by default and the wider field is revealed on a click. */
+  .kyp-mutual {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #d5dce6;
+  }
 
-  .kyp-excluded-summary {
+  .kyp-mutual-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 11px;
     font-size: 11.5px;
-    font-weight: 700;
+    font-weight: 800;
+    letter-spacing: 0.02em;
     color: ${Colors.muted};
   }
 
-  .kyp-excluded-summary:hover { color: ${Colors.navy}; }
+  .kyp-mutual-head svg { flex: 0 0 auto; color: ${Colors.blue}; }
+
+  .kyp-mutual-head .kdx-btn { margin-left: auto; }
+
+  .kyp-mutual-cta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 12px;
+    padding: 11px 14px;
+    border: 1px dashed #c3cdda;
+    border-radius: 12px;
+    background: #f7f9fc;
+    color: ${Colors.navy};
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+
+  .kyp-mutual-cta:hover { border-color: ${Colors.blue}; background: ${Colors.blueLight}; }
+
+  .kyp-mutual-cta svg { color: ${Colors.blue}; }
 
   @media (max-width: 860px) {
     .kyp-bar-right { margin-left: 0; width: 100%; justify-content: space-between; }
@@ -1819,5 +1900,461 @@ export const RESPONSE_CSS = `
 
   @media (prefers-reduced-motion: reduce) {
     .kyp-live-on svg { animation: none; }
+  }
+`;
+
+/* ================================================================== *
+ * The shelter console (prefix ksh-).
+ *
+ * The shelter page is restated in the same visual language the incident desk
+ * already uses — a medallion header with one honest live line, a bordered ledger
+ * of figures with monospaced numerals, and cards that carry their status down
+ * the left edge. It borrows no colour the dispatch primitives do not already
+ * own, so the officer's console reads as one product rather than several.
+ * ================================================================== */
+
+export const SHELTER_CSS = `
+  .ksh {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    animation: ksh-rise 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  @keyframes ksh-rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* --- the header: a panel, not a bare title ------------------------------- */
+  .ksh-hero {
+    padding: 18px 20px;
+    border: 1px solid #e3e8ef;
+    border-radius: 18px;
+    background: ${Colors.white};
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 16px 34px -20px rgba(11, 31, 51, 0.18);
+  }
+
+  .ksh-hero-head {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    flex-wrap: wrap;
+  }
+
+  .ksh-medallion {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    background: linear-gradient(150deg, ${Colors.navyLight}, ${Colors.navy});
+    color: ${Colors.white};
+    box-shadow: 0 8px 16px -8px rgba(11, 31, 51, 0.6);
+  }
+
+  .ksh-hero-text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
+
+  .ksh-title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; color: ${Colors.navy}; }
+
+  .ksh-sub { font-size: 12px; font-weight: 600; color: ${Colors.muted}; line-height: 1.5; max-width: 68ch; }
+
+  /* The connection state is a pill with a breathing dot — proof the desk is
+     being pushed, not merely looked at — never a footnote. */
+  .ksh-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border: 1px solid ${Colors.border};
+    border-radius: 999px;
+    background: ${Colors.background};
+    color: ${Colors.muted};
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .ksh-live-on { border-color: ${Colors.success}; background: rgba(18, 183, 106, 0.1); color: #0B7A48; }
+
+  .ksh-live i {
+    position: relative;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #cfd6df;
+    flex-shrink: 0;
+  }
+
+  .ksh-live-on i { background: ${Colors.success}; }
+
+  .ksh-live-on i::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border: 1px solid ${Colors.success};
+    border-radius: 999px;
+    animation: ksh-pulse 2400ms ease-out infinite;
+  }
+
+  @keyframes ksh-pulse {
+    0% { opacity: 0.55; transform: scale(0.7); }
+    70% { opacity: 0; transform: scale(1.25); }
+    100% { opacity: 0; transform: scale(1.25); }
+  }
+
+  .ksh-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+
+  .ksh-actions .kdx-btn-primary {
+    background: linear-gradient(165deg, ${Colors.navyLight}, ${Colors.navy});
+    border-color: ${Colors.navy};
+    box-shadow: 0 8px 18px -10px rgba(11, 31, 51, 0.55);
+  }
+
+  .ksh-actions .kdx-btn-primary:hover:not(:disabled) {
+    background: linear-gradient(165deg, #1d4a70, ${Colors.navy});
+    border-color: ${Colors.navy};
+    color: ${Colors.white};
+  }
+
+  /* --- the ledger: four figures on one bordered strip ---------------------- */
+  .ksh-rail {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid #eef1f5;
+  }
+
+  /* Four stat cards with real space between them, rather than one dense strip
+     with hairline dividers. The gap is what stops them reading as "packed". */
+  .ksh-cells {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    width: 100%;
+  }
+
+  .ksh-cell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 18px 18px 16px;
+    border: 1px solid #e9eef4;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #ffffff, #f7fafd);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    min-width: 0;
+    overflow: hidden;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  }
+
+  .ksh-cell:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 30px -20px rgba(16, 24, 40, 0.32);
+    border-color: #dce4ee;
+  }
+
+  /* A slim accent down the left edge gives each figure its own identity. */
+  .ksh-cell::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: #cbd5e1;
+  }
+
+  .ksh-cell-ico {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin-bottom: 4px;
+    border-radius: 10px;
+    background: #eaeef4;
+    color: #64748b;
+  }
+
+  .ksh-cell-figure {
+    font-family: ${Mono};
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    color: ${Colors.navy};
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ksh-cell-caption {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: ${Colors.muted};
+  }
+
+  .ksh-cell-sub { font-size: 11px; font-weight: 600; color: #98a2b3; line-height: 1.45; margin-top: 2px; }
+
+  /* A tone colours the mark, its accent, caption, and the figure only where the
+     number itself is the alarm (a shelter with no room left). */
+  .ksh-cell-hot::before { background: ${Colors.red}; }
+  .ksh-cell-hot .ksh-cell-ico { background: ${Colors.redLight}; color: ${Colors.redDark}; }
+  .ksh-cell-hot .ksh-cell-figure { color: ${Colors.red}; }
+  .ksh-cell-hot .ksh-cell-caption { color: ${Colors.redDark}; }
+
+  .ksh-cell-live::before { background: ${Colors.amber}; }
+  .ksh-cell-live .ksh-cell-ico { background: ${Colors.amberLight}; color: ${Colors.amberText}; }
+  .ksh-cell-live .ksh-cell-caption { color: ${Colors.amberText}; }
+
+  .ksh-cell-good::before { background: #12B76A; }
+  .ksh-cell-good .ksh-cell-ico { background: rgba(18, 183, 106, 0.14); color: #0B7A48; }
+  .ksh-cell-good .ksh-cell-caption { color: #0B7A48; }
+
+  @media (max-width: 720px) {
+    .ksh-cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  /* --- the status triage line: a filter the officer reads left to right ------ */
+  .ksh-band-title { font-size: 14px; font-weight: 800; letter-spacing: -0.01em; color: ${Colors.navy}; }
+
+  .ksh-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+
+  .ksh-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 15px;
+    border: 1.5px solid ${Colors.border};
+    border-radius: 14px;
+    background: ${Colors.white};
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  }
+
+  .ksh-filter:hover {
+    transform: translateY(-1px);
+    border-color: var(--tone);
+    box-shadow: 0 12px 24px -16px var(--tone);
+  }
+
+  .ksh-filter-top { display: flex; align-items: center; gap: 9px; }
+
+  .ksh-filter-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--tone); flex-shrink: 0; }
+
+  .ksh-filter-label { font-size: 13px; font-weight: 800; color: ${Colors.navy}; }
+
+  .ksh-filter-count {
+    margin-left: auto;
+    min-width: 24px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: ${Colors.background};
+    color: ${Colors.navy};
+    font-family: ${Mono};
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .ksh-filter-hint { font-size: 11px; font-weight: 600; color: ${Colors.muted}; line-height: 1.45; }
+
+  /* The chosen status is lit in its own colour, not merely outlined. */
+  .ksh-filter-on {
+    border-color: var(--tone);
+    background: var(--tone-tint);
+    box-shadow: 0 0 0 3px var(--tone-ring);
+  }
+
+  .ksh-filter-on .ksh-filter-label { color: var(--tone); }
+  .ksh-filter-on .ksh-filter-count { background: var(--tone-soft); color: var(--tone); }
+
+  /* --- the shelter cards ----------------------------------------------------- */
+  .ksh-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+
+  .ksh-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    padding: 16px 17px 15px 20px;
+    border: 1px solid #e3e8ef;
+    border-radius: 16px;
+    background: ${Colors.white};
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 14px 30px -24px rgba(11, 31, 51, 0.28);
+    overflow: hidden;
+    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  }
+
+  .ksh-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--tone);
+    box-shadow: 0 20px 36px -22px var(--tone);
+  }
+
+  /* The status colour runs the height of the card, so a wall of shelters still
+     reads as a triage line rather than a grid of identical tiles. */
+  .ksh-card-rail { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--tone); }
+
+  .ksh-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+  .ksh-card-name { font-size: 14.5px; font-weight: 800; color: ${Colors.navy}; letter-spacing: -0.01em; line-height: 1.3; }
+
+  .ksh-card-code { margin-top: 4px; font-size: 11px; font-weight: 700; color: ${Colors.muted}; letter-spacing: 0.01em; }
+
+  .ksh-card-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    flex-shrink: 0;
+    color: var(--tone);
+    background: var(--tone-soft);
+    border: 1px solid var(--tone-line);
+  }
+
+  .ksh-occ-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+
+  .ksh-occ-pct { font-family: ${Mono}; font-size: 12.5px; font-weight: 700; color: ${Colors.navy}; }
+
+  .ksh-occ-frac { font-size: 11px; font-weight: 700; color: ${Colors.muted}; }
+
+  .ksh-occ-track {
+    position: relative;
+    height: 10px;
+    border-radius: 999px;
+    background: #eef1f5;
+    border: 1px solid #e3e8ef;
+    overflow: hidden;
+  }
+
+  .ksh-occ-inbound { position: absolute; left: 0; top: 0; bottom: 0; background: var(--tone-bar); transition: width 320ms ease; }
+
+  .ksh-occ-now { position: absolute; left: 0; top: 0; bottom: 0; background: var(--tone); border-radius: 999px; transition: width 320ms ease; }
+
+  .ksh-figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+  .ksh-fig {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 11px;
+    border: 1px solid #eef1f5;
+    border-radius: 11px;
+    background: #fbfcfe;
+    min-width: 0;
+  }
+
+  .ksh-fig-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: ${Colors.muted};
+  }
+
+  .ksh-fig-value { font-family: ${Mono}; font-size: 16px; font-weight: 700; color: ${Colors.navy}; letter-spacing: -0.02em; }
+
+  .ksh-fig-free .ksh-fig-value { color: ${Colors.success}; }
+  .ksh-fig-full .ksh-fig-value { color: ${Colors.red}; }
+
+  .ksh-card-mgr { display: flex; flex-direction: column; gap: 4px; }
+
+  .ksh-mgr-line { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: ${Colors.muted}; min-width: 0; }
+  .ksh-mgr-line svg { flex-shrink: 0; }
+  .ksh-mgr-line span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .ksh-mgr-none { font-size: 11.5px; font-weight: 600; color: #98a2b3; font-style: italic; }
+
+  .ksh-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 9px;
+    padding-top: 12px;
+    border-top: 1px dashed #eef1f5;
+  }
+
+  .ksh-quiet {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 34px 16px;
+    text-align: center;
+    border: 1.5px dashed ${Colors.border};
+    border-radius: 16px;
+    background: ${Colors.white};
+    color: ${Colors.muted};
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .ksh-quiet svg { color: ${Colors.border}; }
+
+  /* --- the district switcher, as a premium pill control --------------------- */
+  .ksh-switch { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .ksh-switch-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: ${Colors.muted};
+  }
+
+  .ksh-switch-select {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .ksh-switch select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 8px 34px 8px 13px;
+    border: 1px solid ${Colors.border};
+    border-radius: 11px;
+    background: ${Colors.white};
+    color: ${Colors.navy};
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .ksh-switch select:hover { border-color: ${Colors.blue}; }
+
+  .ksh-switch select:focus { outline: none; border-color: ${Colors.blue}; box-shadow: 0 0 0 3px rgba(21, 112, 239, 0.14); }
+
+  .ksh-switch-note { font-size: 11.5px; font-weight: 600; color: ${Colors.muted}; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ksh { animation: none; }
+    .ksh-live-on i::after { animation: none; }
   }
 `;

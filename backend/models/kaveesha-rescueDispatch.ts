@@ -183,6 +183,20 @@ export interface IncidentDetail extends IncidentSummary {
   dispatches: DispatchRoll[];
 }
 
+/**
+ * A shelter a mission's evacuee group has been allocated to, shaped for the
+ * leader's phone: where to drive and how many of the group go there. A group
+ * split across two shelters produces two of these. Non-persisted; it is joined
+ * live from the group's PENDING allocations when the workspace is read.
+ */
+export interface ShelterAssignment {
+  shelterId: string;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+  allocatedCount: number;
+}
+
 /** A dispatch with the team and incident snapshot the portal lists need. */
 export interface DispatchRoll {
   id: string;
@@ -222,6 +236,13 @@ export interface DispatchRoll {
   dispatchedByName?: string;
   /** The duty line of the officer who tasked the team, when they have one. */
   controlPhone?: string;
+  /** First incident photo as a stored data URL, so the leader's phone can paint
+   *  the scene without a second fetch. Attached only to the active mission. */
+  thumbnailUrl?: string;
+  /** The shelter(s) this mission's rescued group has been allocated to, with the
+   *  live group status. Attached only to the active mission once an officer allocates. */
+  shelterAssignment?: ShelterAssignment[];
+  groupStatus?: string;
   events: DispatchEvent[];
 }
 

@@ -54,7 +54,8 @@ export type EvacueeGroupStatus =
   | "ARRIVAL_REPORTED"
   | "ARRIVED"
   | "PARTIAL"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "DECLINED";
 
 export type AllocationStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
 

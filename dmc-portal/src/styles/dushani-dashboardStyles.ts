@@ -721,18 +721,41 @@ export const OVERVIEW_STYLES = `
     box-shadow: 0 4px 12px -4px rgba(180, 35, 24, 0.5);
   }
 
-  .dmc-action-button-standdown,
-  .dmc-action-button-delete {
-    color: ${RedText};
-    border-color: var(--sp-red-line, #5F1D22);
-    background: ${RedTint};
+  /* The three warning actions read in order of consequence: keep, pause, remove. */
+  .dmc-action-button-extend {
+    border-color: var(--sp-blue-line, #1E3A66);
+    background: ${Console.blueTint};
+    color: ${Console.blueInk};
   }
 
-  .dmc-action-button-standdown:hover:not(:disabled),
-  .dmc-action-button-delete:hover:not(:disabled) {
-    background: ${RedTint};
-    border-color: ${Console.red};
+  .dmc-action-button-extend:hover:not(:disabled) {
+    border-color: ${Console.blueSoft};
+    background: ${Console.blueTint};
+    color: ${White};
+  }
+
+  .dmc-action-button-standdown {
+    border-color: var(--sp-amber-line, #5C4310);
+    background: ${Console.amberTint};
+    color: ${Console.amberInk};
+  }
+
+  .dmc-action-button-standdown:hover:not(:disabled) {
+    border-color: ${Console.amber};
+    background: ${Console.amberTint};
+    color: ${White};
+  }
+
+  .dmc-action-button-delete {
+    border-color: var(--sp-red-line, #5F1D22);
+    background: transparent;
     color: ${RedText};
+  }
+
+  .dmc-action-button-delete:hover:not(:disabled) {
+    background: ${Console.red};
+    border-color: ${Console.red};
+    color: ${White};
   }
 
   .dmc-coverage-list {
@@ -1006,6 +1029,16 @@ export const HISTORY_STYLES = `
     box-shadow: ${FocusRing};
   }
 
+  .dmc-history-card-open,
+  .dmc-history-card-open:hover {
+    border-color: ${Console.blue};
+    box-shadow: ${ShadowRaised};
+  }
+
+  .dmc-history-card-open .dmc-history-row {
+    background: ${Card};
+  }
+
   .dmc-history-main {
     flex: 1;
     display: flex;
@@ -1014,34 +1047,82 @@ export const HISTORY_STYLES = `
     min-width: 0;
   }
 
-  .dmc-history-detail {
-    padding: 20px;
-    border-top: 1px solid ${Divider};
-    background: ${Surface};
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 14px;
-    align-items: start;
+  .dmc-history-caret-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
   }
 
-  .dmc-detail-wide {
-    grid-column: 1 / -1;
+  .dmc-history-caret {
+    color: ${Console.cyan};
+    transition: transform 180ms ease;
+  }
+
+  .dmc-history-caret-open {
+    transform: rotate(180deg);
+  }
+
+  .dmc-history-detail {
+    padding: 18px;
+    border-top: 1px solid ${Divider};
+    background: ${Surface};
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .dmc-detail-hero {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 14px 20px;
+    flex-wrap: wrap;
+    padding: 16px 18px;
+    border: 1px solid ${Line};
+    border-radius: 14px;
+    background: linear-gradient(135deg, ${Console.blueTint} 0%, ${Card} 58%);
+    box-shadow: ${ShadowCard};
+  }
+
+  .dmc-hero-target {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1 1 260px;
+    min-width: 0;
+  }
+
+  .dmc-hero-target .sp-facts {
+    gap: 6px 24px;
+  }
+
+  .dmc-section-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 11px;
+  }
+
+  .dmc-section-head h4 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: ${InkDim};
+  }
+
+  .dmc-section-head svg {
+    color: ${Console.blueInk};
+    flex-shrink: 0;
   }
 
   .dmc-detail-block {
     background: ${Card};
     border: 1px solid ${Hairline};
-    border-radius: 12px;
-    padding: 14px 16px;
-  }
-
-  .dmc-detail-block h4 {
-    margin: 0 0 8px;
-    font-size: 10.5px;
-    font-weight: 800;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: ${InkDim};
+    border-radius: 14px;
+    padding: 16px 18px;
   }
 
   .dmc-detail-block p {
@@ -1052,23 +1133,30 @@ export const HISTORY_STYLES = `
     line-height: 1.6;
   }
 
+  .dmc-language-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+  }
+
   .dmc-language {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 6px;
+    min-width: 0;
   }
 
   .dmc-language .dmc-message {
     margin: 0;
-    padding: 10px 13px;
-    border-radius: 0 10px 10px 0;
+    padding: 12px 15px;
+    border-radius: 0 12px 12px 0;
     border: 1px solid ${Hairline};
     border-left: 3px solid ${Line};
     background: ${Surface};
     color: ${Ink};
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
-    line-height: 1.6;
+    line-height: 1.65;
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -1085,9 +1173,26 @@ export const HISTORY_STYLES = `
     border-left-color: ${Green};
   }
 
+  .dmc-instruction {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .dmc-instruction .sp-block {
+    font-size: 14px;
+  }
+
+  .dmc-delivery-note {
+    padding-top: 10px;
+    border-top: 1px dashed ${Divider};
+  }
+
   .dmc-extend-row {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
+    justify-content: space-between;
     gap: 10px;
     flex-wrap: wrap;
   }
@@ -1125,6 +1230,13 @@ export const HISTORY_STYLES = `
     outline: none;
     border-color: ${Console.red};
     box-shadow: ${FocusRing};
+  }
+
+  /* Inside the history action card the picker takes the line it is on. */
+  .dmc-action-group .dmc-extend-row select {
+    flex: 1;
+    min-width: 120px;
+    height: 42px;
   }
 
   .dmc-log-channel {
@@ -1175,8 +1287,99 @@ export const HISTORY_STYLES = `
   .dmc-detail-actions {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    gap: 12px;
+    flex: 1 1 320px;
+    max-width: 420px;
+    padding: 14px 16px;
+    border: 1px solid ${Line};
+    border-radius: 14px;
+    background: ${Console.surfaceAlt};
+  }
+
+  .dmc-detail-actions .dmc-section-head {
+    margin-bottom: 0;
+  }
+
+  .dmc-action-group {
+    display: flex;
+    flex-direction: column;
     gap: 10px;
+    padding: 13px 14px;
+    border: 1px solid ${Line};
+    border-radius: 12px;
+    background: ${Card};
+  }
+
+  .dmc-action-group-danger {
+    border-color: var(--sp-red-line, #5F1D22);
+    background: ${RedTint};
+  }
+
+  .dmc-action-group .sp-label {
+    color: ${Console.inkDim};
+  }
+
+  .dmc-action-group-danger .sp-label {
+    color: ${RedText};
+  }
+
+  .dmc-action-group p {
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.55;
+    color: ${InkDim};
+  }
+
+  .dmc-action-hint {
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .dmc-action-group .dmc-action-button {
+    gap: 8px;
+    height: 42px;
+    padding: 0 16px;
+    border-radius: 11px;
+    font-size: 13.5px;
+    font-weight: 800;
+    transition: border-color 140ms ease, background 140ms ease, color 140ms ease,
+      box-shadow 160ms ease, transform 140ms ease;
+  }
+
+  .dmc-action-group .dmc-action-button svg {
+    flex-shrink: 0;
+  }
+
+  .dmc-action-group .dmc-action-button:hover:not(:disabled) {
+    box-shadow: ${ShadowCard};
+    transform: translateY(-1px);
+  }
+
+  .dmc-action-group .dmc-action-button:active:not(:disabled) {
+    box-shadow: none;
+    transform: translateY(1px);
+  }
+
+  .dmc-button-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .dmc-button-row .dmc-action-button {
+    flex: 1 1 140px;
+    height: 42px;
+    justify-content: center;
+    font-size: 13.5px;
+  }
+
+  .dmc-action-button-wide {
+    align-self: stretch;
+    height: 42px;
+    justify-content: center;
+    font-size: 13.5px;
   }
 
   @media (max-width: 720px) {
@@ -1185,12 +1388,30 @@ export const HISTORY_STYLES = `
     }
 
     .dmc-history-detail {
-      grid-template-columns: 1fr;
+      padding: 14px;
+      gap: 12px;
+    }
+
+    .dmc-detail-hero {
+      flex-direction: column;
+      align-items: stretch;
       padding: 14px;
     }
 
-    .dmc-detail-wide {
-      grid-column: auto;
+    .dmc-detail-actions {
+      width: 100%;
+      max-width: none;
+      align-items: stretch;
+    }
+
+    .dmc-language-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dmc-history-caret {
+      transition: none;
     }
   }
 `;

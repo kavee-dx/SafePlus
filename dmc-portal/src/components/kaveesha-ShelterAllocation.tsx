@@ -372,7 +372,7 @@ function GroupList({
 
 /* ---------------------------- allocation editor ---------------------------- */
 
-function AllocationEditor({
+export function AllocationEditor({
   token,
   group,
   shelters,
@@ -545,10 +545,14 @@ function AllocationEditor({
 
     try {
       const updated = await allocateGroup(token, group.id, cleaned);
+      const beds =
+        updated.allocations.filter((a) => a.status === "PENDING").length ||
+        updated.allocations.length;
+
       onDone(
-        `${updated.groupCode} is allocated to ${updated.allocations.length} shelter${
-          updated.allocations.length === 1 ? "" : "s"
-        }.`
+        `${updated.groupCode} is allocated across ${beds} shelter${
+          beds === 1 ? "" : "s"
+        } and the team leader has been told where to drive.`
       );
     } catch (err) {
       if (err instanceof ShelterApiError) {
@@ -556,6 +560,7 @@ function AllocationEditor({
       } else {
         setError(err instanceof Error ? err.message : "The allocation failed.");
       }
+    } finally {
       setBusy(false);
     }
   };
