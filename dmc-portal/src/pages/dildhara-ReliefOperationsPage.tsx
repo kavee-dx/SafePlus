@@ -34,6 +34,8 @@ interface ReliefOperationsPageProps {
   dispatchFocus?: ReliefDispatchFocus;
 }
 
+type AllocationPage = "draft-details" | "resources" | "register";
+
 const cardStyle: React.CSSProperties = {
   background: "#ffffff",
   border: "1px solid #e7ebf0",
@@ -113,6 +115,8 @@ export default function ReliefOperationsPage({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [allocationPage, setAllocationPage] =
+    useState<AllocationPage>("draft-details");
 
   const [allocationType, setAllocationType] =
     useState<"REQUEST" | "AREA">("AREA");
@@ -161,6 +165,16 @@ export default function ReliefOperationsPage({
     setError("");
     setSuccess("");
 
+    if (
+      !destinationName.trim() ||
+      !destinationLocation.trim() ||
+      !destinationDistrict.trim()
+    ) {
+      setAllocationPage("draft-details");
+      setError("Complete the destination name, location, and district first.");
+      return;
+    }
+
     const selectedItems = resources
       .map((resource) => ({
         resourceId: resource.id,
@@ -186,6 +200,7 @@ export default function ReliefOperationsPage({
     }
 
     if (allocationType === "REQUEST" && !requestId.trim()) {
+      setAllocationPage("draft-details");
       setError("Select an approved resource request.");
       return;
     }
@@ -216,6 +231,7 @@ export default function ReliefOperationsPage({
       setNotes("");
 
       await loadData();
+      setAllocationPage("register");
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not create the allocation.";
@@ -238,7 +254,9 @@ export default function ReliefOperationsPage({
 
     try {
       await reserveReliefAllocation(token, allocation.id);
-      setSuccess(`Allocation ${allocation.id} reserved successfully.`);
+      setSuccess(
+        `Allocation for ${allocation.destination_name || "destination"} reserved successfully.`
+      );
       await loadData();
     } catch (err) {
       const message =
@@ -285,6 +303,16 @@ export default function ReliefOperationsPage({
     }
   };
 
+  const getAllocationRequestLabel = (allocation: ReliefAllocation) => {
+    const request = resourceRequests.find(
+      (candidate) => candidate.id === allocation.request_id
+    );
+
+    if (!request) return "Request details unavailable";
+
+    return `${request.resourceName} · ${displayQuantity(request.quantity)} ${request.unit}`;
+  };
+
   const reservedCount = allocations.filter(
     (allocation) => allocation.status === "RESERVED"
   ).length;
@@ -298,6 +326,25 @@ export default function ReliefOperationsPage({
   );
 
   const activeStockCount = resources.length;
+  const continueToResources = () => {
+    setError("");
+
+    if (allocationType === "REQUEST" && !requestId.trim()) {
+      setError("Select an approved resource request.");
+      return;
+    }
+
+    if (
+      !destinationName.trim() ||
+      !destinationLocation.trim() ||
+      !destinationDistrict.trim()
+    ) {
+      setError("Enter the destination name, location, and district to continue.");
+      return;
+    }
+
+    setAllocationPage("resources");
+  };
 
   return (
     <div className="ro-page" style={{ display: "grid", gap: 22, color: "#101828" }}>
@@ -445,21 +492,77 @@ export default function ReliefOperationsPage({
         </div>
       </section>
 
+      <section
+        aria-label="Allocation pages"
+        style={{
+          display: "flex",
+          gap: 10,
+          flexWrap: "wrap",
+          padding: 14,
+          border: "1px solid #e7ebf0",
+          borderRadius: 12,
+          background: "#ffffff",
+        }}
+      >
+        {([
+          ["draft-details", "1. Allocation details"],
+          ["resources", "2. Select resources"],
+          ["register", "Allocation register"],
+        ] as const).map(([page, label]) => {
+          const selected = allocationPage === page;
+          const disabled =
+            page === "resources" &&
+            !destinationName.trim() &&
+            !destinationLocation.trim() &&
+            !destinationDistrict.trim();
+
+          return (
+            <button
+              key={page}
+              type="button"
+              onClick={() => {
+                setError("");
+                setAllocationPage(page);
+              }}
+              disabled={disabled}
+              aria-current={selected ? "page" : undefined}
+              style={{
+                border: selected ? "1px solid #175cd3" : "1px solid #d0d5dd",
+                borderRadius: 8,
+                background: selected ? "#eff8ff" : "#ffffff",
+                color: selected ? "#175cd3" : "#344054",
+                padding: "10px 14px",
+                fontWeight: 700,
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.55 : 1,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </section>
+
+      {allocationPage !== "register" && (
       <section style={cardStyle}>
         <div className="ro-section-title">
           <div className="ro-section-title-icon"><ClipboardList size={18} /></div>
           <div>
         <h2 style={{ margin: "0 0 6px", fontSize: 19, color: "#101828" }}>
-          Create allocation draft
+          {allocationPage === "draft-details"
+            ? "Allocation details"
+            : "Select resources and quantities"}
         </h2>
         <p style={{ margin: "0 0 18px", color: "#667085", fontSize: 13 }}>
-          Drafting does not reserve stock. The backend rechecks stock when you
-          reserve the allocation.
+          {allocationPage === "draft-details"
+            ? "Choose the allocation target and enter its destination. Resource selection is the next step."
+            : "Choose quantities for this allocation. Drafting does not reserve stock; availability is rechecked when stock is reserved."}
         </p>
           </div>
         </div>
 
-        <form onSubmit={handleCreateDraft} style={{ display: "grid", gap: 18 }}>
+        {allocationPage === "draft-details" ? (
+        <div style={{ display: "grid", gap: 18 }}>
           <div className="ro-type-field">
             <label htmlFor="allocationType" style={labelStyle}>
               Allocation type
@@ -580,11 +683,37 @@ export default function ReliefOperationsPage({
             />
           </div>
 
-          <div>
-            <h3 style={{ margin: "4px 0 10px", fontSize: 15 }}>
-              Select resources and quantities
-            </h3>
+          <button
+            type="button"
+            onClick={continueToResources}
+            style={{
+              ...primaryButtonStyle,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              justifySelf: "start",
+            }}
+          >
+            Continue to resource selection
+          </button>
+        </div>
+        ) : (
+        <form onSubmit={handleCreateDraft} style={{ display: "grid", gap: 18 }}>
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 9,
+              background: "#f9fafb",
+              color: "#475467",
+              fontSize: 13,
+            }}
+          >
+            <strong>{destinationName}</strong>
+            {" · "}{destinationLocation}
+            {" · "}{destinationDistrict}
+          </div>
 
+          <div>
             {loading ? (
               <p style={{ color: "#667085" }}>Loading available resources…</p>
             ) : resources.length === 0 ? (
@@ -693,15 +822,18 @@ export default function ReliefOperationsPage({
             </button>
           </div>
         </form>
+        )}
       </section>
+      )}
 
+      {allocationPage === "register" && (
       <section style={cardStyle}>
         <h2 style={{ margin: "0 0 6px", fontSize: 19 }}>
           Allocation register
         </h2>
         <p style={{ margin: "0 0 16px", color: "#667085", fontSize: 13 }}>
-          Review drafts and reservations. Dispatch planning and delivery
-          confirmation will be connected in the next stage.
+          Review allocation drafts and reservations. Reserve stock for eligible
+          drafts or cancel drafts and reservations here.
         </p>
 
         {loading ? (
@@ -748,20 +880,10 @@ export default function ReliefOperationsPage({
                         color: "#667085",
                         fontSize: 12,
                         marginTop: 5,
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      ID: {allocation.id}
-                    </div>
-                    <div
-                      style={{
-                        color: "#667085",
-                        fontSize: 12,
-                        marginTop: 5,
                       }}
                     >
                       {allocation.allocation_type === "REQUEST"
-                        ? `Request: ${allocation.request_id ?? "Not specified"}`
+                        ? `Request: ${getAllocationRequestLabel(allocation)}`
                         : "Area allocation"}
                       {" · "}
                       {allocation.destination_district}
@@ -794,7 +916,7 @@ export default function ReliefOperationsPage({
                   >
                     {allocation.items.map((item, index) => (
                       <div key={item.id ?? `${item.resource_id}-${index}`}>
-                        {item.resource_name ?? item.resource_type ?? item.resource_id}
+                        {item.resource_name ?? item.resource_type ?? "Resource"}
                         {" — "}
                         {displayQuantity(item.quantity)} {item.unit ?? ""}
                       </div>
@@ -867,6 +989,7 @@ export default function ReliefOperationsPage({
         )}
       
       </section>
+      )}
 
       <DildharaDispatchManagementSection
         token={token}

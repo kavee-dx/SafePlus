@@ -31,15 +31,13 @@ const ROLE_HOME: Record<string, RoleConfig> = {
   DELIVERY_VOLUNTEER: {
     message: "Help deliver food and supplies where they are needed.",
     actions: [
-      { key: "requests", icon: "bicycle-outline", label: "Requests", hint: "View delivery requests" },
-      { key: "my-deliveries", icon: "navigate-outline", label: "My deliveries", hint: "Accept and track" },
+      { key: "my-deliveries", icon: "navigate-outline", label: "My deliveries", hint: "View assigned trips" },
     ],
   },
   DELIVERY_VOLUNTEER_TEAM: {
     message: "Coordinate your team's deliveries.",
     actions: [
-      { key: "requests", icon: "bicycle-outline", label: "Requests", hint: "View delivery requests" },
-      { key: "assign", icon: "people-outline", label: "Assign", hint: "Assign to your team" },
+      { key: "my-deliveries", icon: "people-outline", label: "Team deliveries", hint: "View assigned team trips" },
     ],
   },
   RELIEF_AGENCY: {

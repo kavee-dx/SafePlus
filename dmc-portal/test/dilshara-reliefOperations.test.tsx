@@ -72,14 +72,19 @@ function renderPage() {
   return { onSessionExpired };
 }
 
+function enterDestination(name = "North Centre") {
+  fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: name } });
+  fireEvent.change(screen.getByLabelText("Destination location"), { target: { value: "Jaffna" } });
+  fireEvent.change(screen.getByLabelText("District"), { target: { value: "Jaffna" } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue to resource selection" }));
+}
+
 describe("Relief Operations allocation UI", () => {
   it("prevents draft submission when a requested quantity exceeds available stock", async () => {
     renderPage();
+    enterDestination("North Relief Centre");
     const quantityInput = await screen.findByLabelText("Quantity (litres)");
     fireEvent.change(quantityInput, { target: { value: "6" } });
-    fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "North Centre" } });
-    fireEvent.change(screen.getByLabelText("Destination location"), { target: { value: "Jaffna" } });
-    fireEvent.change(screen.getByLabelText("District"), { target: { value: "Jaffna" } });
     const form = screen.getByRole("button", { name: "Create draft" }).closest("form");
     expect(form).not.toBeNull();
     fireEvent.submit(form as HTMLFormElement);
@@ -97,10 +102,8 @@ describe("Relief Operations allocation UI", () => {
     allocationApi.reserve.mockResolvedValue(undefined);
     renderPage();
 
+    enterDestination("North Relief Centre");
     fireEvent.change(await screen.findByLabelText("Quantity (litres)"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "North Relief Centre" } });
-    fireEvent.change(screen.getByLabelText("Destination location"), { target: { value: "Jaffna" } });
-    fireEvent.change(screen.getByLabelText("District"), { target: { value: "Jaffna" } });
     fireEvent.click(screen.getByRole("button", { name: "Create draft" }));
 
     await waitFor(() => expect(allocationApi.create).toHaveBeenCalledWith(
@@ -121,6 +124,55 @@ describe("Relief Operations allocation UI", () => {
     ));
     expect(await screen.findByText("RESERVED")).toBeTruthy();
     expect(allocationApi.allocations).toHaveBeenCalledTimes(3);
+  });
+
+  it("navigates between resource selection and a separate allocation register view", async () => {
+    allocationApi.allocations.mockResolvedValue([allocation]);
+    renderPage();
+
+    expect(screen.queryByText("Dispatch management section")).toBeTruthy();
+    expect(screen.queryByText("No allocations have been created yet.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allocation register" }));
+    expect(await screen.findByText("North Relief Centre")).toBeTruthy();
+    expect(screen.queryByLabelText("Quantity (litres)")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "1. Allocation details" }));
+    expect(await screen.findByLabelText("Destination name")).toBeTruthy();
+    expect(screen.queryByText("North Relief Centre")).toBeNull();
+  });
+
+  it("shows allocation and request names instead of their IDs in the register", async () => {
+    const requestAllocation = {
+      ...allocation,
+      allocation_type: "REQUEST" as const,
+      request_id: "55555555-5555-4555-8555-555555555555",
+    };
+    allocationApi.allocations.mockResolvedValue([requestAllocation]);
+    allocationApi.requests.mockResolvedValue([{
+      id: requestAllocation.request_id,
+      requesterUserId: "66666666-6666-4666-8666-666666666666",
+      resourceType: "WATER",
+      resourceName: "Drinking water",
+      quantity: 20,
+      unit: "Bottles",
+      description: null,
+      urgency: "HIGH",
+      requiredDate: null,
+      location: "Colombo",
+      district: "Colombo",
+      status: "APPROVED",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    }]);
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allocation register" }));
+
+    expect(await screen.findByText(/Request: Drinking water · 20 Bottles/)).toBeTruthy();
+    expect(screen.queryByText(requestAllocation.id)).toBeNull();
+    expect(screen.queryByText(requestAllocation.request_id)).toBeNull();
+    expect(screen.queryByText("66666666-6666-4666-8666-666666666666")).toBeNull();
   });
 
   it("shows a load failure and notifies the host when the session has expired", async () => {

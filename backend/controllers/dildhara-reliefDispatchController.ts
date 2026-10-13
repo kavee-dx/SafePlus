@@ -6,6 +6,7 @@ import {
   getDispatchAssignmentOptions,
   getDispatchDetails,
   getDispatches,
+  getMyDeliveryAssignments,
   markDispatchDeparted,
   recordAgencyResponse,
   recordDeliveryConfirmation,
@@ -77,6 +78,23 @@ export async function getDispatchAssignmentOptionsController(
   try {
     const options = await getDispatchAssignmentOptions();
     res.json(options);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getMyDeliveryAssignmentsController(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const assignments = await getMyDeliveryAssignments(
+      getUserId(req),
+      req.user?.role ?? ""
+    );
+
+    res.json({ assignments });
   } catch (error) {
     next(error);
   }

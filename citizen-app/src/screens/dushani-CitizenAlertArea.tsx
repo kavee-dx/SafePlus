@@ -3,6 +3,7 @@ import {
   Animated,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   View,
   type TextStyle,
@@ -22,9 +23,9 @@ import HomeScreen from "./dildhara-HomeScreen";
 import AlertInboxScreen from "./dushani-AlertInboxScreen";
 import MyReportsScreen from "./amasha-MyReportsScreen";
 import ReportHazardScreen from "./amasha-ReportHazardScreen";
-import KaveeshaNearbySheltersScreen from "./kaveesha-NearbySheltersScreen";
+import MyDeliveriesScreen from "./dildhara-MyDeliveriesScreen";
 import { startOfflineSync } from "../services/amasha-offlineSync";
-
+import KaveeshaNearbySheltersScreen from "./kaveesha-NearbySheltersScreen";
 type Overlay = "none" | "report" | "mine" | "alerts" | "relief";
 type PushState = "unknown" | "ready" | "blocked" | "unsupported";
 
@@ -275,6 +276,24 @@ export default function CitizenAlertArea({
     );
   }
 
+  if (overlay === "deliveries") {
+    return (
+      <View className="flex-1 bg-safeplus-background">
+        <ScrollView
+          className="flex-1"
+          contentContainerClassName="px-5 pt-14 pb-8 w-full max-w-xl self-center"
+          showsVerticalScrollIndicator={false}
+        >
+          <MyDeliveriesScreen
+            token={token}
+            onBack={() => setOverlay("none")}
+            onSessionExpired={onSignOut}
+          />
+        </ScrollView>
+      </View>
+    );
+  }
+
   if (overlay === "report") {
     return (
       <ReportHazardScreen
@@ -335,6 +354,7 @@ export default function CitizenAlertArea({
         onOpenAlerts={() => setOverlay("alerts")}
         onFindReliefCenters={() => setOverlay("relief")}
         onAlertsChanged={() => setPollToken((current) => current + 1)}
+        onOpenDeliveries={() => setOverlay("deliveries")}
       />
 
       {unreadCount > 0 && (

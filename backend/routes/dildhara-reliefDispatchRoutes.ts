@@ -10,12 +10,17 @@ import {
   departDispatchController,
   getDispatchController,
   getDispatchAssignmentOptionsController,
+  getMyDeliveryAssignmentsController,
   listDispatchesController,
 } from "../controllers/dildhara-reliefDispatchController";
 
 const router = Router();
 
 router.use(requireAuth);
+
+// Delivery accounts can read only trips linked to their own volunteer/team
+// profile. This route must stay before the coordinator-only guard below.
+router.get("/my-deliveries", getMyDeliveryAssignmentsController);
 
 router.use(
   (
