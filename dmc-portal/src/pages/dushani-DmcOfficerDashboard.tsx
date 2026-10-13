@@ -3,7 +3,9 @@ import {
   Activity,
   AlertTriangle,
   Ban,
+  CalendarClock,
   CheckCircle,
+  ChevronDown,
   ClipboardList,
   Clock,
   Home,
@@ -11,7 +13,9 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  MapPin,
   Megaphone,
+  MessageSquare,
   ShieldCheck,
   Trash2,
   User,
@@ -836,16 +840,17 @@ function HistoryView({
           const open = openId === warning.id;
           const logs = warning.broadcastLogs ?? [];
           const summary = deliverySummary(logs);
-          const pushTargets = logs
-            .filter((log) => log.channelType === "push")
-            .reduce((total, log) => total + log.targetCount, 0);
 
           return (
-            <article key={warning.id} className="dmc-history-card">
+            <article
+              key={warning.id}
+              className={`dmc-history-card${open ? " dmc-history-card-open" : ""}`}
+            >
               <button
                 type="button"
                 className={`dmc-history-row dmc-alert-${tone(warning.status)}`}
                 onClick={() => setOpenId(open ? null : warning.id)}
+                aria-expanded={open}
               >
                 <span className="dmc-alert-status">{humanize(warning.status)}</span>
                 <span className="dmc-history-main">
@@ -880,54 +885,206 @@ function HistoryView({
                     </span>
                   </span>
                 </span>
-                <span className="dmc-alert-time">{relativeTime(warning.updatedAt)}</span>
+                <span className="dmc-history-caret-wrap">
+                  <span className="dmc-alert-time">
+                    {relativeTime(warning.updatedAt)}
+                  </span>
+                  <ChevronDown
+                    className={`dmc-history-caret${open ? " dmc-history-caret-open" : ""}`}
+                    size={17}
+                  />
+                </span>
               </button>
 
               {open && (
                 <div className="dmc-history-detail">
-                  <div className="dmc-detail-block">
-                    <h4>Target</h4>
-                    <dl className="sp-list">
-                      <div className="sp-row">
-                        <dt>Boundary</dt>
-                        <dd>
-                          {warning.gisPolygon
-                            ? warning.gisPolygon.source === "CUSTOM"
-                              ? "Drawn polygon"
-                              : "District polygon"
-                            : `Whole ${warning.targetDistrict} district`}
-                        </dd>
+                  <div className="dmc-detail-hero">
+                    <div className="dmc-hero-target">
+                      <div className="dmc-section-head">
+                        <MapPin size={15} />
+                        <h4>Target area</h4>
                       </div>
-                      {warning.gisPolygon && (
-                        <div className="sp-row">
-                          <dt>Area</dt>
-                          <dd className="sp-mono">
-                            {warning.gisPolygon.areaSqKm.toFixed(1)} km²
-                          </dd>
+
+                      <div className="sp-facts">
+                        <span className="sp-fact">
+                          <span className="sp-label">Boundary</span>
+                          <span className="sp-value">{boundaryLabel(warning)}</span>
+                        </span>
+                        {warning.gisPolygon && (
+                          <span className="sp-fact">
+                            <span className="sp-label">Area</span>
+                            <span className="sp-value sp-mono">
+                              {warning.gisPolygon.areaSqKm.toFixed(1)} km²
+                            </span>
+                          </span>
+                        )}
+                        {warning.gisPolygon?.districtOverlapRatio !== undefined && (
+                          <span className="sp-fact">
+                            <span className="sp-label">Inside {warning.targetDistrict}</span>
+                            <span className="sp-value sp-mono">
+                              {(warning.gisPolygon.districtOverlapRatio * 100).toFixed(1)}%
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {warning.status !== "PENDING_DISPATCH" && (
+                      <div className="dmc-detail-actions">
+                        <div className="dmc-section-head">
+                          <KeyRound size={15} />
+                          <h4>Officer actions</h4>
                         </div>
-                      )}
-                      {warning.gisPolygon?.districtOverlapRatio !== undefined && (
-                        <div className="sp-row">
-                          <dt>Inside district</dt>
-                          <dd className="sp-mono">
-                            {(warning.gisPolygon.districtOverlapRatio * 100).toFixed(1)}% of{" "}
-                            {warning.targetDistrict}
-                          </dd>
+
+                        {warning.status === "DRAFT" && (
+                          <div className="dmc-action-group">
+                            <p>
+                              Saved but never sent. It needs the clearance PIN before
+                              it can reach anyone.
+                            </p>
+
+                            <button
+                              type="button"
+                              className="dmc-action-button dmc-action-button-primary dmc-action-button-wide"
+                              onClick={() => onIssueWarning(warning.warningId)}
+                            >
+                              <Megaphone size={16} /> Issue warning
+                            </button>
+                          </div>
+                        )}
+
+                        {(warning.status === "ACTIVE" ||
+                          warning.status === "EXPIRED") && (
+                          <div className="dmc-action-group">
+                            <span className="sp-label">Keep it running</span>
+
+                            <div className="dmc-extend-row">
+                              <label htmlFor={`wz-extend-${warning.id}`}>Extend by</label>
+                              <select
+                                id={`wz-extend-${warning.id}`}
+                                value={extendHours}
+                                onChange={(event) =>
+                                  setExtendHours(Number(event.target.value))
+                                }
+                              >
+                                {EXPIRY_EXTENSION_HOURS.map((hours) => (
+                                  <option key={hours} value={hours}>
+                                    {hours === 1 ? "1 hour" : `${hours} hours`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <button
+                              type="button"
+                              className="dmc-action-button dmc-action-button-extend dmc-action-button-wide"
+                              onClick={() => openPinModal(warning, "extend")}
+                              disabled={busyId === warning.id}
+                            >
+                              <Clock size={16} />
+                              {warning.status === "EXPIRED"
+                                ? "Extend and reactivate"
+                                : "Extend expiry"}
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="dmc-action-group dmc-action-group-danger">
+                          <span className="sp-label">
+                            {warning.status === "STOOD_DOWN"
+                              ? "Remove from the record"
+                              : "Stop the alert"}
+                          </span>
+
+                          <div className="dmc-button-row">
+                            {warning.status !== "STOOD_DOWN" && (
+                              <button
+                                type="button"
+                                className="dmc-action-button dmc-action-button-standdown"
+                                onClick={() => openPinModal(warning, "stand-down")}
+                                disabled={busyId === warning.id}
+                              >
+                                {busyId === warning.id ? (
+                                  <Loader2 className="dmc-spin" size={16} />
+                                ) : (
+                                  <Ban size={16} />
+                                )}
+                                Stand down
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              className="dmc-action-button dmc-action-button-delete"
+                              onClick={() => void deleteWarningHandler(warning)}
+                              disabled={busyId === warning.id}
+                            >
+                              {busyId === warning.id ? (
+                                <Loader2 className="dmc-spin" size={16} />
+                              ) : (
+                                <Trash2 size={16} />
+                              )}
+                              Delete warning
+                            </button>
+                          </div>
+
+                          <p className="dmc-action-hint">
+                            {warning.status === "STOOD_DOWN"
+                              ? "Deleting removes the warning and its delivery log."
+                              : "Stand-down asks for your clearance PIN. Deleting is permanent."}
+                          </p>
                         </div>
-                      )}
-                      <div className="sp-row">
-                        <dt>Accounts targeted</dt>
-                        <dd>{formatCount(warning.audienceCount)}</dd>
                       </div>
-                      <div className="sp-row">
-                        <dt>SMS recipients</dt>
-                        <dd>{formatCount(warning.smsRecipientCount)}</dd>
-                      </div>
-                    </dl>
+                    )}
                   </div>
 
-                  <div className="dmc-detail-block dmc-detail-wide">
-                    <h4>Channels and delivery</h4>
+                  <div className="dmc-detail-block">
+                    <div className="dmc-section-head">
+                      <MessageSquare size={15} />
+                      <h4>Message citizens receive</h4>
+                    </div>
+
+                    <div className="dmc-language-grid">
+                      {warning.englishMessage && (
+                        <div className="dmc-language dmc-language-en">
+                          <span className="sp-label">English</span>
+                          <p className="dmc-message">{warning.englishMessage}</p>
+                        </div>
+                      )}
+                      {warning.sinhalaMessage && (
+                        <div className="dmc-language dmc-language-si">
+                          <span className="sp-label">Sinhala</span>
+                          <p className="dmc-message">{warning.sinhalaMessage}</p>
+                        </div>
+                      )}
+                      {warning.tamilMessage && (
+                        <div className="dmc-language dmc-language-ta">
+                          <span className="sp-label">Tamil</span>
+                          <p className="dmc-message">{warning.tamilMessage}</p>
+                        </div>
+                      )}
+                      {!warning.englishMessage &&
+                        !warning.sinhalaMessage &&
+                        !warning.tamilMessage && (
+                          <div className="sp-empty">
+                            No wording was saved for this warning.
+                          </div>
+                        )}
+                    </div>
+
+                    {warning.safetyInstructions && (
+                      <div className="dmc-instruction">
+                        <span className="sp-label">Safety instruction</span>
+                        <p className="sp-block">{warning.safetyInstructions}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="dmc-detail-block">
+                    <div className="dmc-section-head">
+                      <Activity size={15} />
+                      <h4>Channels and delivery</h4>
+                    </div>
 
                     {logs.length === 0 ? (
                       <div className="sp-empty">
@@ -993,28 +1150,7 @@ function HistoryView({
                           })}
                         </div>
 
-                        <div className="sp-facts">
-                          <span className="sp-fact">
-                            <span className="sp-label">In the app</span>
-                            <span className="sp-value">
-                              {formatCount(warning.audienceCount)} accounts
-                            </span>
-                          </span>
-                          <span className="sp-fact">
-                            <span className="sp-label">Push devices</span>
-                            <span className="sp-value">
-                              {pushTargets === 0 ? "None" : formatCount(pushTargets)}
-                            </span>
-                          </span>
-                          <span className="sp-fact">
-                            <span className="sp-label">Text numbers</span>
-                            <span className="sp-value">
-                              {formatCount(warning.smsRecipientCount)}
-                            </span>
-                          </span>
-                        </div>
-
-                        <p className="dmc-muted">
+                        <p className="dmc-muted dmc-delivery-note">
                           Every targeted account sees this warning in the citizen app
                           inbox, with or without a notification.
                         </p>
@@ -1022,159 +1158,35 @@ function HistoryView({
                     )}
                   </div>
 
-                  <div className="dmc-detail-block dmc-detail-wide">
-                    <h4>Alert payload</h4>
-                    <div className="sp-stack">
-                      {warning.englishMessage && (
-                        <div className="dmc-language dmc-language-en">
-                          <span className="sp-label">English</span>
-                          <p className="dmc-message">{warning.englishMessage}</p>
-                        </div>
-                      )}
-                      {warning.sinhalaMessage && (
-                        <div className="dmc-language dmc-language-si">
-                          <span className="sp-label">Sinhala</span>
-                          <p className="dmc-message">{warning.sinhalaMessage}</p>
-                        </div>
-                      )}
-                      {warning.tamilMessage && (
-                        <div className="dmc-language dmc-language-ta">
-                          <span className="sp-label">Tamil</span>
-                          <p className="dmc-message">{warning.tamilMessage}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
                   <div className="dmc-detail-block">
-                    <h4>Timing</h4>
-                    <dl className="sp-list">
-                      <div className="sp-row">
-                        <dt>Broadcast</dt>
-                        <dd className="sp-mono">
-                          {warning.broadcastAt
-                            ? new Date(warning.broadcastAt).toLocaleString()
-                            : "Not broadcast yet"}
-                        </dd>
+                    <div className="dmc-section-head">
+                      <CalendarClock size={15} />
+                      <h4>Timing</h4>
+                    </div>
+
+                    <div className="sp-grid">
+                      <div className="sp-cell">
+                        <span className="sp-label">
+                          {warning.broadcastAt ? "Broadcast" : "Created"}
+                        </span>
+                        <span className="sp-value sp-mono">
+                          {new Date(
+                            warning.broadcastAt ?? warning.createdAt
+                          ).toLocaleString()}
+                        </span>
                       </div>
-                      <div className="sp-row">
-                        <dt>{warning.status === "ACTIVE" ? "Active until" : "Expired"}</dt>
-                        <dd className="sp-mono">
+                      <div className="sp-cell">
+                        <span className="sp-label">
+                          {warning.status === "ACTIVE" ? "Active until" : "Expired"}
+                        </span>
+                        <span className="sp-value sp-mono">
                           {warning.expiresAt
                             ? new Date(warning.expiresAt).toLocaleString()
                             : "No expiry set"}
-                        </dd>
+                        </span>
                       </div>
-                      <div className="sp-row">
-                        <dt>Created</dt>
-                        <dd className="sp-mono">
-                          {new Date(warning.createdAt).toLocaleString()}
-                        </dd>
-                      </div>
-                      <div className="sp-row">
-                        <dt>Last updated</dt>
-                        <dd className="sp-mono">
-                          {new Date(warning.updatedAt).toLocaleString()}
-                        </dd>
-                      </div>
-                      {warning.safetyInstructions && (
-                        <div className="sp-row">
-                          <dt>Instruction</dt>
-                          <dd className="sp-value-regular">
-                            {warning.safetyInstructions}
-                          </dd>
-                        </div>
-                      )}
-                    </dl>
+                    </div>
                   </div>
-
-                  {warning.status === "DRAFT" && (
-                    <div className="dmc-detail-block dmc-detail-actions">
-                      <h4>Actions</h4>
-
-                      <p>
-                        Saved but never sent. It needs the clearance PIN before
-                        it can reach anyone.
-                      </p>
-
-                      <button
-                        type="button"
-                        className="dmc-action-button dmc-action-button-primary"
-                        onClick={() => onIssueWarning(warning.warningId)}
-                      >
-                        <Megaphone size={14} /> Issue warning
-                      </button>
-                    </div>
-                  )}
-
-                  {(warning.status === "ACTIVE" ||
-                    warning.status === "EXPIRED" ||
-                    warning.status === "STOOD_DOWN") && (
-                    <div className="dmc-detail-block dmc-detail-actions">
-                      <h4>Actions</h4>
-
-                      {(warning.status === "ACTIVE" || warning.status === "EXPIRED") && (
-                        <div className="dmc-extend-row">
-                          <label htmlFor={`wz-extend-${warning.id}`}>Extend by</label>
-                          <select
-                            id={`wz-extend-${warning.id}`}
-                            value={extendHours}
-                            onChange={(event) =>
-                              setExtendHours(Number(event.target.value))
-                            }
-                          >
-                            {EXPIRY_EXTENSION_HOURS.map((hours) => (
-                              <option key={hours} value={hours}>
-                                {hours === 1 ? "1 hour" : `${hours} hours`}
-                              </option>
-                            ))}
-                          </select>
-
-                          <button
-                            type="button"
-                            className="dmc-action-button"
-                            onClick={() => openPinModal(warning, "extend")}
-                            disabled={busyId === warning.id}
-                          >
-                            <Clock size={14} />
-                            {warning.status === "EXPIRED"
-                              ? "Extend and reactivate"
-                              : "Extend expiry"}
-                          </button>
-                        </div>
-                      )}
-
-                      {(warning.status === "ACTIVE" || warning.status === "EXPIRED") && (
-                        <button
-                          type="button"
-                          className="dmc-action-button dmc-action-button-standdown"
-                          onClick={() => openPinModal(warning, "stand-down")}
-                          disabled={busyId === warning.id}
-                        >
-                          {busyId === warning.id ? (
-                            <Loader2 className="dmc-spin" size={14} />
-                          ) : (
-                            <Ban size={14} />
-                          )}
-                          Stand down
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        className="dmc-action-button dmc-action-button-delete"
-                        onClick={() => void deleteWarningHandler(warning)}
-                        disabled={busyId === warning.id}
-                      >
-                        {busyId === warning.id ? (
-                          <Loader2 className="dmc-spin" size={14} />
-                        ) : (
-                          <Trash2 size={14} />
-                        )}
-                        Delete warning
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
             </article>
@@ -1216,11 +1228,18 @@ function hoursLabel(hours: number): string {
   return hours === 1 ? "1 hour" : `${hours} hours`;
 }
 
-function tone(status: WarningStatus): string {
-  if (status === "ACTIVE") return "critical";
+function tone(status: WarningStatus): string {  if (status === "ACTIVE") return "critical";
   if (status === "DRAFT" || status === "PENDING_DISPATCH") return "high";
 
   return "medium";
+}
+
+function boundaryLabel(warning: DisasterWarning): string {
+  if (!warning.gisPolygon) return `Whole ${warning.targetDistrict} district`;
+
+  return warning.gisPolygon.source === "CUSTOM"
+    ? "Drawn polygon"
+    : "District polygon";
 }
 
 function humanize(value: string): string {

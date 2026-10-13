@@ -434,8 +434,8 @@ export function skippedCopy(
 ): { reason: string; nextStep: string } {
   if (channel === "push") {
     return {
-      reason: "No phone in this district has notifications enabled",
-      nextStep: "Open the citizen app once and allow notifications",
+      reason: "No account in this district has a registered push token",
+      nextStep: "Open the citizen app on a real phone and allow notifications",
     };
   }
 

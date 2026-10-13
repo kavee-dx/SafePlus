@@ -110,9 +110,9 @@ describe("Alert history", () => {
     expect(await screen.findByText("Push notification")).toBeTruthy();
     expect(screen.getByText("No receivers")).toBeTruthy();
     expect(
-      screen.getByText("No phone in this district has notifications enabled")
+      screen.getByText("No account in this district has a registered push token")
     ).toBeTruthy();
-    expect(screen.getByText("Open the citizen app once and allow notifications")).toBeTruthy();
+    expect(screen.getByText("Open the citizen app on a real phone and allow notifications")).toBeTruthy();
     expect(screen.queryByText("Failed")).toBeNull();
     expect(screen.getByText("Nothing to send")).toBeTruthy();
   });

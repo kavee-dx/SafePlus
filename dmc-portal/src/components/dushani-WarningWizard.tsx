@@ -9,6 +9,7 @@ import {
   ClipboardList,
   CircleDot,
   Clock,
+  KeyRound,
   Loader2,
   Map as MapIcon,
   Megaphone,
@@ -1590,7 +1591,65 @@ function StepAuthorize({
         unauthorized attempt.
       </p>
 
-      <div className="wz-summary">
+      <div className="wz-pinpanel">
+        <div className="wz-pinpanel-head">
+          <KeyRound size={15} />
+          <span className="sp-label">Clearance PIN</span>
+          <span className="wz-pinpanel-count">
+            {pin.filter(Boolean).length} of 6 digits
+          </span>
+        </div>
+
+        <div className="wz-pinbox" aria-label="Clearance PIN">
+          {pin.map((digit, index) => (
+            <input
+              key={index}
+              ref={(element) => {
+                pinInputs.current[index] = element;
+              }}
+              className={`wz-pinbox-digit${digit ? " wz-pinbox-digit-filled" : ""}`}
+              aria-label={`PIN digit ${index + 1}`}
+              value={digit ? "•" : ""}
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={1}
+              disabled={broadcasting}
+              onChange={(event) => onPinChange(index, event.target.value)}
+              onPaste={(event) => {
+                event.preventDefault();
+                onPaste(event.clipboardData.getData("text"));
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Backspace" && !digit) {
+                  onBackKey(index);
+                }
+              }}
+            />
+          ))}
+        </div>
+
+        {broadcasting && (
+          <p className="wz-help">
+            <Loader2 className="wz-spin" size={13} /> Broadcasting - hold on.
+          </p>
+        )}
+
+        <p className="wz-help">
+          Forgotten it?{" "}
+          <button type="button" className="wz-link" onClick={onSetupPin}>
+            Set a new PIN
+          </button>{" "}
+          first — changing it needs the current one.
+        </p>
+      </div>
+
+      <div className="wz-pinconfirm">
+        <div className="wz-pinpanel-head">
+          <ShieldCheck size={15} />
+          <span className="sp-label">What you are authorizing</span>
+        </div>
+
+        <div className="wz-summary">
         <SummaryRow label="Warning" value={warning?.warningId ?? "Not saved yet"} />
         <SummaryRow label="Verified report" value={report?.reportId ?? "—"} />
         <SummaryRow
@@ -1621,17 +1680,23 @@ function StepAuthorize({
         />
         <SummaryRow
           label="Accounts targeted"
+          value={String(
+            audience?.audienceCount ?? warning?.audienceCount ?? "—"
+          )}
+        />
+        <SummaryRow
+          label="Push receivers"
           value={
-            warning
-              ? String(warning.audienceCount)
-              : audience
-                ? String(audience.audienceCount)
-                : "—"
+            audience
+              ? `${audience.pushCapable} of ${audience.audienceCount}`
+              : "—"
           }
         />
         <SummaryRow
           label="SMS recipients"
-          value={warning ? String(warning.smsRecipientCount) : "—"}
+          value={String(
+            audience?.smsCapable ?? warning?.smsRecipientCount ?? "—"
+          )}
         />
         <SummaryRow
           label="Channels"
@@ -1652,47 +1717,18 @@ function StepAuthorize({
         <SummaryRow
           label="Reach estimate"
           value={
-            warning?.estimatedReach !== undefined
-              ? `${warning.estimatedReach.toFixed(1)}%`
-              : "—"
+            audience && audience.registeredResidents > 0
+              ? `${(
+                  (audience.audienceCount / audience.registeredResidents) *
+                  100
+                ).toFixed(1)}%`
+              : warning?.estimatedReach !== undefined
+                ? `${warning.estimatedReach.toFixed(1)}%`
+                : "—"
           }
         />
+        </div>
       </div>
-
-      <div className="wz-pinbox" aria-label="Clearance PIN">
-        {pin.map((digit, index) => (
-          <input
-            key={index}
-            ref={(element) => {
-              pinInputs.current[index] = element;
-            }}
-            className="wz-pinbox-digit"
-            value={digit ? "•" : ""}
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={1}
-            disabled={broadcasting}
-            onChange={(event) => onPinChange(index, event.target.value)}
-            onPaste={(event) => {
-              event.preventDefault();
-              onPaste(event.clipboardData.getData("text"));
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Backspace" && !digit) {
-                onBackKey(index);
-              }
-            }}
-          />
-        ))}
-      </div>
-
-      <p className="wz-help">
-        Forgotten it?{" "}
-        <button type="button" className="wz-link" onClick={onSetupPin}>
-          Set a new PIN
-        </button>{" "}
-        first — changing it needs the current one.
-      </p>
     </section>
   );
 }
@@ -2633,25 +2669,72 @@ const WIZARD_STYLES = `
     font-variant-numeric: tabular-nums;
   }
 
+  .wz-pinpanel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px 20px;
+    border: 1px solid ${Console.blueSoft};
+    border-radius: 14px;
+    background: linear-gradient(180deg, ${Console.blueTint} 0%, ${Card} 72%);
+    box-shadow: ${ShadowCard};
+  }
+
+  .wz-pinpanel-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: ${Console.blueInk};
+  }
+
+  .wz-pinpanel-head .sp-label {
+    color: ${Ink};
+  }
+
+  .wz-pinpanel-count {
+    margin-left: auto;
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: ${Console.blueInk};
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wz-pinpanel .wz-help {
+    margin: 0;
+  }
+
+  .wz-pinconfirm {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
   .wz-pinbox {
     display: flex;
-    gap: 10px;
+    gap: 12px;
     justify-content: center;
-    padding: 12px 0 4px;
+    flex-wrap: wrap;
+    padding: 4px 0 0;
   }
 
   .wz-pinbox-digit {
-    width: 52px;
-    height: 60px;
-    border: 1px solid ${Console.cyanTint};
+    width: 56px;
+    height: 66px;
+    flex-shrink: 0;
+    border: 1px solid ${Console.line};
     border-radius: 12px;
     text-align: center;
-    font-size: 24px;
+    font-family: ${ConsoleTokens.Mono};
+    font-size: 26px;
     font-weight: 800;
+    font-variant-numeric: tabular-nums;
     color: ${Ink};
-    background: ${Card};
-    box-shadow: none;
-    transition: border-color 140ms ease, box-shadow 140ms ease;
+    background: ${Console.surfaceHi};
+    box-shadow: ${ShadowCard};
+    transition: border-color 140ms ease, box-shadow 140ms ease,
+      background 140ms ease, color 140ms ease;
   }
 
   .wz-pinbox-digit:hover:not(:disabled) {
@@ -2665,6 +2748,12 @@ const WIZARD_STYLES = `
 
   .wz-pinbox-digit:focus-visible {
     box-shadow: ${FocusRing};
+  }
+
+  .wz-pinbox-digit-filled {
+    border-color: ${Console.cyan};
+    background: ${Console.cyanTint};
+    color: ${Console.cyan};
   }
 
   .wz-pinbox-digit:disabled {
@@ -3016,14 +3105,18 @@ const WIZARD_STYLES = `
       grid-template-columns: 1fr;
     }
 
+    .wz-pinpanel {
+      padding: 16px 14px;
+    }
+
     .wz-pinbox {
-      gap: 7px;
+      gap: 8px;
     }
 
     .wz-pinbox-digit {
-      width: 42px;
-      height: 54px;
-      font-size: 20px;
+      width: 44px;
+      height: 58px;
+      font-size: 21px;
     }
 
     .wz-footer {

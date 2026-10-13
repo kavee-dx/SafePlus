@@ -80,8 +80,8 @@ describe("deliveryPill and meterTone", () => {
 describe("skippedCopy", () => {
   it("explains why a channel had nobody to reach, and what to do next", () => {
     expect(skippedCopy("push")).toEqual({
-      reason: "No phone in this district has notifications enabled",
-      nextStep: "Open the citizen app once and allow notifications",
+      reason: "No account in this district has a registered push token",
+      nextStep: "Open the citizen app on a real phone and allow notifications",
     });
 
     expect(skippedCopy("sms")).toEqual({

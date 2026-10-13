@@ -146,12 +146,14 @@ function fakeChannel(
     targetCount?: number;
     deliveryCount?: number;
     delayMs?: number;
+    deadlineMs?: number;
   }
 ): DisseminationChannel & { calls: number } {
   let calls = 0;
 
   return {
     channelType,
+    deadlineMs: outcome.deadlineMs,
     get calls() {
       return calls;
     },
@@ -320,5 +322,21 @@ describe("ChannelDispatcher", () => {
 
     expect(push?.status).toBe(BroadcastStatus.FAILED);
     expect(push?.errorMessage).toContain("No delivery receipts within 0s");
+  });
+
+  it("gives a slow channel the window it asks for instead of calling it dead", async () => {
+    const dispatcher = new ChannelDispatcher(50);
+
+    dispatcher.registerChannel(
+      fakeChannel(ChannelType.SMS, { targetCount: 2, delayMs: 200, deadlineMs: 400 })
+    );
+
+    const outcome = await dispatcher.dispatch(
+      warningFixture() as never,
+      [ChannelType.SMS],
+      recipients(2)
+    );
+
+    expect(outcome.results.get(ChannelType.SMS)?.status).toBe(BroadcastStatus.SUCCESS);
   });
 });

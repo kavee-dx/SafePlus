@@ -8,9 +8,13 @@ import type {
   DispatchRequest,
 } from "./dushani-disseminationChannels";
 
-/** Short-code style sender id printed above the message on the handset. */
-export function smsSenderId(): string {
-  return process.env.SMS_SENDER_ID?.trim().toUpperCase() || "DMC-ALERT";
+/**
+ * The name printed above the message on the handset. A registered carrier
+ * sender is case sensitive, so it is used exactly as configured - and the app
+ * inbox shows the same name the real text carried, never a stand-in.
+ */
+export function smsSenderId(env: NodeJS.ProcessEnv = process.env): string {
+  return env.SMS_SENDER_ID?.trim() || env.TEXTLK_SENDER_ID?.trim() || "DMC-ALERT";
 }
 
 /**
@@ -50,8 +54,13 @@ export function plainSmsText(text: string): string {
   return text.replace(/[^\x20-\x7E]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** The wording already names the alert, so the SMS does not say it twice. */
+/**
+ * The wording already names the alert, so the SMS does not say it twice.
+ */
 const ALERT_BRANDING = /^(safeplus|dmc)\s+(alert|warning)\s*[:\-]?\s*/i;
+
+/** One GSM segment on the `plain` carrier leg. Past this the handset gets two texts. */
+const SMS_SEGMENT_BUDGET = 160;
 
 /**
  * The text the network actually carries. Text.lk documents one message type,
@@ -68,15 +77,22 @@ export function buildCarrierMessage(request: DispatchRequest): string {
   const instruction = plainSmsText(
     request.safetyInstructions?.trim() || defaultInstruction(request.severityLevel)
   );
+  const parts = [
+    `SAFEPLUS ALERT ${alertLevelLabel(request.severityLevel)}`,
+    detail,
+    `Do this: ${instruction}`,
+  ];
 
-  return plainSmsText(
-    [
-      `SAFEPLUS ALERT ${alertLevelLabel(request.severityLevel)}`,
-      detail,
-      `Do this: ${instruction}`,
-      `Ref ${request.warningId} (DMC Sri Lanka)`,
-    ].join(" | ")
-  );
+  const branded = plainSmsText([...parts, `Ref ${request.warningId} (DMC Sri Lanka)`].join(" | "));
+
+  if (branded.length <= SMS_SEGMENT_BUDGET) {
+    return branded;
+  }
+
+  // A second segment is a second text billed per handset, so when the officer's
+  // own wording overflows one, the redundant brand suffix is what goes - the
+  // sender id already says who sent it. The instruction is never shortened.
+  return plainSmsText([...parts, `Ref ${request.warningId}`].join(" | "));
 }
 
 /**
@@ -240,6 +256,119 @@ const TEXTLK_ENDPOINT = "https://app.text.lk/api/v3/sms/send";
 interface TextLkReply {
   status?: string;
   message?: string;
+  data?: { status?: string };
+}
+
+/**
+ * Text.lk answers `status: "success"` as soon as it takes the message, then
+ * reports in `data.status` whether the relay actually passed it on. The wording
+ * there varies by plan - a bare word, a sentence, sometimes a number - so the
+ * carrier's own words are read for a refusal first, then for an acceptance.
+ */
+const TEXTLK_PASSED_ON = /^(delivered|submitted|sent|queued|accepted|scheduled|success)/i;
+const TEXTLK_REFUSED =
+  /(fail|error|reject|invalid|expired|blocked|unauthori[sz]ed|insufficient|balance|debit)/i;
+const TEXTLK_ANY_ACCEPTANCE =
+  /(deliver|submit|sent|queue|accept|schedul|success)/i;
+
+/** A refusal that applies to every handset, so the cohort must not be retried. */
+class CohortRefusal extends Error {}
+
+function relayWords(status: unknown): string {
+  if (status === null || status === undefined) {
+    return "";
+  }
+
+  return typeof status === "string" ? status.trim() : String(status);
+}
+
+function relayAccepted(words: string): boolean {
+  if (!words) {
+    return true;
+  }
+
+  if (TEXTLK_REFUSED.test(words)) {
+    return false;
+  }
+
+  return TEXTLK_PASSED_ON.test(words) || TEXTLK_ANY_ACCEPTANCE.test(words);
+}
+
+/**
+ * The reply for one handset. A crash here - an unexpected body shape, a socket
+ * that died after the carrier took the message - must not be allowed to fail
+ * the numbers that were sent cleanly, so it is reported against this number
+ * alone.
+ */
+async function sendOneViaTextLk(
+  to: string,
+  message: string,
+  apiKey: string,
+  senderId: string
+): Promise<string | null> {
+  let response: Response;
+
+  try {
+    response = await postJson(
+      TEXTLK_ENDPOINT,
+      {
+        recipient: to.replace(/^\+/, ""),
+        sender_id: senderId,
+        type: textLkMessageType(),
+        message,
+      },
+      apiKey
+    );
+  } catch (error) {
+    return `${to}: ${(error as Error).message} The carrier may still have sent it - check its message log before resending.`;
+  }
+
+  const reply = (await response.json().catch(() => ({}))) as TextLkReply;
+  const words = relayWords(reply.data?.status);
+
+  // Text.lk answers 401 only for an unusable token. Every other 4xx still
+  // carries the reason in the body - a number it will not route and an
+  // unverified sender both arrive that way - so the carrier's own words are
+  // reported instead of a guessed credential complaint.
+  if (response.status === 401) {
+    throw new CohortRefusal(
+      `refused the API token: ${(reply.message ?? "unauthenticated request").replace(/\.$/, "")}. Check TEXTLK_API_KEY in backend/.env against the token on the app.text.lk dashboard.`
+    );
+  }
+
+  if (response.ok && reply.status === "success") {
+    return relayAccepted(words) ? null : `${to}: the Text.lk relay answered "${words}".`;
+  }
+
+  return `${to}: ${reply.message ?? `Text.lk responded with HTTP ${response.status}`}`;
+}
+
+export async function sendViaTextLk(
+  destinations: string[],
+  message: string,
+  apiKey = process.env.TEXTLK_API_KEY?.trim(),
+  senderId = textLkSenderId()
+): Promise<CarrierReply> {
+  if (!apiKey) {
+    throw new Error("SMS_PROVIDER=textlk but TEXTLK_API_KEY is not set.");
+  }
+
+  const settled = await Promise.all(
+    destinations.map((to) =>
+      sendOneViaTextLk(to, message, apiKey, senderId).catch((error: unknown) => {
+        if (error instanceof CohortRefusal) {
+          throw error;
+        }
+
+        return `${to}: ${error instanceof Error ? error.message : "the carrier reply could not be read."}`;
+      })
+    )
+  );
+
+  return {
+    delivered: destinations.filter((_, index) => settled[index] === null),
+    errors: settled.filter((error): error is string => error !== null),
+  };
 }
 
 /**
@@ -255,42 +384,6 @@ export function textLkMessageType(
 
 export function textLkSenderId(): string {
   return process.env.TEXTLK_SENDER_ID?.trim() || smsSenderId();
-}
-
-export async function sendViaTextLk(
-  destinations: string[],
-  message: string,
-  apiKey = process.env.TEXTLK_API_KEY?.trim(),
-  senderId = textLkSenderId()
-): Promise<CarrierReply> {
-  if (!apiKey) {
-    throw new Error("SMS_PROVIDER=textlk but TEXTLK_API_KEY is not set.");
-  }
-
-  const settled = await Promise.all(
-    destinations.map(async (to): Promise<string | null> => {
-      const response = await postJson(
-        TEXTLK_ENDPOINT,
-        {
-          recipient: to.replace(/^\+/, ""),
-          sender_id: senderId,
-          type: textLkMessageType(),
-          message,
-        },
-        apiKey
-      );
-      const reply = (await response.json().catch(() => ({}))) as TextLkReply;
-
-      return response.ok && reply.status === "success"
-        ? null
-        : `${to}: ${reply.message ?? `Text.lk responded with ${response.status}`}`;
-    })
-  );
-
-  return {
-    delivered: destinations.filter((_, index) => settled[index] === null),
-    errors: settled.filter((error): error is string => error !== null),
-  };
 }
 
 /**
@@ -422,15 +515,32 @@ export function resolveSmsGateway(
 export class SmsAlertChannel implements DisseminationChannel {
   readonly channelType = ChannelType.SMS;
 
+  /**
+   * Every SMSC request may use the full 12s, so this channel needs a wider
+   * window than a push receipt - otherwise the dispatcher records texts that
+   * really went out as a failed channel.
+   */
+  readonly deadlineMs = SMSC_REQUEST_TIMEOUT_MS + 8_000;
+
   constructor(private readonly gateway: SmsGateway | null = resolveSmsGateway()) {}
 
   async send(request: DispatchRequest): Promise<ChannelResult> {
     const startedAt = Date.now();
-    const cohort = request.recipients.filter(
-      (recipient): recipient is AlertRecipient & { phoneNumber: string } =>
-        Boolean(recipient.phoneNumber)
-    );
-    const targetCount = cohort.length;
+    const dialable: (AlertRecipient & { phoneNumber: string; msisdn: string })[] = [];
+    let landlineCount = 0;
+
+    for (const recipient of request.recipients) {
+      const phoneNumber = recipient.phoneNumber;
+      const msisdn = phoneNumber ? toInternationalMsisdn(phoneNumber) : null;
+
+      if (phoneNumber && msisdn) {
+        dialable.push({ ...recipient, phoneNumber, msisdn });
+      } else if (phoneNumber) {
+        landlineCount += 1;
+      }
+    }
+
+    const targetCount = dialable.length;
 
     if (targetCount === 0) {
       return {
@@ -439,7 +549,10 @@ export class SmsAlertChannel implements DisseminationChannel {
         deliveryCount: 0,
         failureCount: 0,
         elapsedMs: Date.now() - startedAt,
-        errorMessage: `No account in ${request.targetDistrict} District has a phone number, so no text was sent.`,
+        errorMessage:
+          landlineCount > 0
+            ? `${landlineCount} ${landlineCount === 1 ? "account" : "accounts"} in ${areaOf(request)} gave a landline number, which no text can reach - the alert is still in their app inbox.`
+            : `No account in ${areaOf(request)} has a phone number, so no text was sent.`,
         simulated: false,
       };
     }
@@ -450,16 +563,18 @@ export class SmsAlertChannel implements DisseminationChannel {
       request.safetyInstructions?.trim() || defaultInstruction(request.severityLevel);
     const body = buildSmsBody(request);
     const carrierMessage = buildCarrierMessage(request);
-    let reachable = cohort;
-    let carrierNote: string | undefined;
+    const notes: string[] = [];
+    let reachable = dialable;
 
     if (this.gateway) {
-      const reply = await this.handToCarrier(this.gateway, cohort, carrierMessage);
+      const reply = await this.handToCarrier(
+        this.gateway,
+        dialable.map((recipient) => recipient.msisdn),
+        carrierMessage
+      );
       const accepted = new Set(reply.delivered);
 
-      reachable = cohort.filter(
-        (recipient) => accepted.has(toInternationalMsisdn(recipient.phoneNumber) ?? "")
-      );
+      reachable = dialable.filter((recipient) => accepted.has(recipient.msisdn));
 
       if (reachable.length === 0) {
         return {
@@ -473,10 +588,10 @@ export class SmsAlertChannel implements DisseminationChannel {
         };
       }
 
-      carrierNote = reply.errors[0];
+      notes.push(...reply.errors);
     }
 
-    const delivered = await insertAlertSms(
+    const stored = await insertAlertSms(
       reachable.map<NewAlertSms>((recipient) => ({
         warningInternalId: request.warningInternalId,
         recipientId: recipient.userId,
@@ -487,6 +602,14 @@ export class SmsAlertChannel implements DisseminationChannel {
         body,
       }))
     );
+
+    /**
+     * With a carrier the handset verdict is the carrier's, and the inbox row is
+     * a side effect that may already exist from an earlier run. Counting the
+     * store instead of the send turns a text that really arrived into a
+     * failure.
+     */
+    const delivered = this.gateway ? reachable.length : stored;
 
     if (delivered === 0) {
       return {
@@ -500,6 +623,12 @@ export class SmsAlertChannel implements DisseminationChannel {
       };
     }
 
+    if (landlineCount > 0) {
+      notes.push(
+        `${landlineCount} ${landlineCount === 1 ? "account" : "accounts"} in ${areaOf(request)} gave a landline number, which no text can reach.`
+      );
+    }
+
     return {
       status:
         delivered === targetCount ? BroadcastStatus.SUCCESS : BroadcastStatus.PARTIAL,
@@ -508,7 +637,7 @@ export class SmsAlertChannel implements DisseminationChannel {
       failureCount: targetCount - delivered,
       elapsedMs: Date.now() - startedAt,
       errorMessage: this.gateway
-        ? carrierNote
+        ? notes[0]
         : "No carrier gateway is configured (SMS_PROVIDER=textlk or SMS_GATEWAY_URL), so this text was stored for the in-app inbox instead of sent over the network.",
       simulated: !this.gateway,
     };
@@ -516,41 +645,22 @@ export class SmsAlertChannel implements DisseminationChannel {
 
   private async handToCarrier(
     gateway: SmsGateway,
-    cohort: (AlertRecipient & { phoneNumber: string })[],
+    destinations: string[],
     body: string
   ): Promise<CarrierReply> {
-    const destinations: string[] = [];
-    const errors: string[] = [];
-
-    for (const recipient of cohort) {
-      const msisdn = toInternationalMsisdn(recipient.phoneNumber);
-
-      if (msisdn) {
-        destinations.push(msisdn);
-      } else {
-        errors.push(`${recipient.phoneNumber} is not a Sri Lankan mobile number.`);
-      }
-    }
-
-    if (destinations.length === 0) {
-      return {
-        delivered: [],
-        errors: ["None of the registered numbers is a valid Sri Lankan mobile number."],
-      };
-    }
-
     try {
-      const reply = await gateway.transport(destinations, body);
-
-      return { delivered: reply.delivered, errors: [...errors, ...reply.errors] };
+      return await gateway.transport(destinations, body);
     } catch (error) {
       return {
         delivered: [],
         errors: [
-          ...errors,
           `${gateway.name}: ${error instanceof Error ? error.message : "unavailable."}`,
         ],
       };
     }
   }
+}
+
+function areaOf(request: DispatchRequest): string {
+  return `${request.targetDistrict} District`;
 }
