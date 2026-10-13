@@ -54,6 +54,7 @@ import {
   alertLevelLabel,
   defaultInstruction,
   smsSenderId,
+  toInternationalMsisdn,
 } from "./dushani-smsGatewayService";
 import { getAuditLogger } from "./dushani-auditLoggerService";
 
@@ -745,7 +746,9 @@ export class WarningService {
 
     const recipients = rows.filter(inside);
     const pushCapable = recipients.filter((row) => Boolean(row.deviceToken)).length;
-    const smsCapable = recipients.filter((row) => Boolean(row.phoneNumber)).length;
+    const smsCapable = recipients.filter((row) =>
+      row.phoneNumber ? toInternationalMsisdn(row.phoneNumber) !== null : false
+    ).length;
     const audienceCount = recipients.length;
     const estimatedReach =
       rows.length === 0

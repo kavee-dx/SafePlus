@@ -104,14 +104,19 @@ export default function PinChallengeModal({
 
         <p className="pin-modal-lead">{description}</p>
 
-        <div className="pin-modal-box">
+        <div className="pin-modal-box-head">
+          <span className="pin-modal-box-label">Clearance PIN</span>
+          <span className="pin-modal-box-count">{pin.length} of 6 digits</span>
+        </div>
+
+        <div className="pin-modal-box" role="group" aria-label="Clearance PIN">
           {digits.map((digit, index) => (
             <input
               key={index}
               ref={(element) => {
                 inputs.current[index] = element;
               }}
-              className="pin-modal-digit"
+              className={`pin-modal-digit${digit ? " pin-modal-digit-filled" : ""}`}
               value={digit}
               type="password"
               inputMode="numeric"
@@ -182,6 +187,8 @@ const PIN_MODAL_STYLES = `
 
   .pin-modal {
     width: min(440px, 100%);
+    max-height: calc(100vh - 28px);
+    overflow: auto;
     background: ${Card};
     border: 1px solid ${Hairline};
     border-radius: 18px;
@@ -220,7 +227,7 @@ const PIN_MODAL_STYLES = `
     border-radius: 10px;
     background: ${RedTint};
     color: ${RedText};
-    border: 1px solid #FDA29B;
+    border: 1px solid ${Console.redSoft};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -244,40 +251,76 @@ const PIN_MODAL_STYLES = `
     color: ${InkDim};
   }
 
+  .pin-modal-box-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 2px 2px 0;
+  }
+
+  .pin-modal-box-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: ${Console.inkDim};
+  }
+
+  .pin-modal-box-count {
+    margin-left: auto;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: ${Console.blueInk};
+  }
+
   .pin-modal-box {
     display: flex;
     gap: 10px;
     justify-content: center;
-    padding: 4px 0 2px;
+    flex-wrap: wrap;
+    padding: 14px 12px;
+    border: 1px solid ${Console.blueSoft};
+    border-radius: 14px;
+    background: linear-gradient(180deg, ${Console.blueTint} 0%, ${Card} 78%);
   }
 
   .pin-modal-digit {
-    width: 54px;
-    height: 46px;
+    width: 52px;
+    height: 60px;
+    flex-shrink: 0;
     border: 1px solid ${Line};
-    border-radius: 10px;
+    border-radius: 12px;
     text-align: center;
     font-family: ${Mono};
-    font-size: 20px;
+    font-size: 24px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
     color: ${Ink};
-    background: ${Card};
+    background: ${Console.surfaceHi};
     caret-color: ${Console.red};
     box-shadow: ${ShadowCard};
-    transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease,
+      color 140ms ease;
   }
 
   .pin-modal-digit:not(:disabled):hover {
     border-color: ${Console.blueSoft};
   }
 
-  .pin-modal-digit:focus-visible {
+  .pin-modal-digit:focus {
     outline: none;
-    border-color: ${Console.red};
+    border-color: ${Console.cyan};
+  }
+
+  .pin-modal-digit:focus-visible {
     box-shadow: ${FocusRing};
-    background: ${Card};
+  }
+
+  .pin-modal-digit-filled {
+    border-color: ${Console.cyan};
+    background: ${Console.cyanTint};
+    color: ${Console.cyan};
   }
 
   .pin-modal-digit:disabled {
@@ -289,9 +332,9 @@ const PIN_MODAL_STYLES = `
   .pin-modal-error {
     margin: 0;
     padding: 10px 12px;
-    border: 1px solid #FDA29B;
+    border: 1px solid ${Console.redSoft};
     border-radius: 10px;
-    background: #FEF3F2;
+    background: ${RedTint};
     font-size: 12px;
     font-weight: 700;
     line-height: 1.45;
@@ -395,12 +438,13 @@ const PIN_MODAL_STYLES = `
 
     .pin-modal-box {
       gap: 8px;
+      padding: 10px 8px;
     }
 
     .pin-modal-digit {
-      width: 46px;
-      height: 44px;
-      font-size: 18px;
+      width: 42px;
+      height: 54px;
+      font-size: 20px;
     }
   }
 `;
